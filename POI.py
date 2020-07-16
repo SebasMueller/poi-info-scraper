@@ -1,5 +1,6 @@
 import requests
 import html
+import re
 limit = 3
 radius = 15
 lat = 52.824201
@@ -186,7 +187,6 @@ def get_waitrose_data(lat, lng):
     params_hours = { 'branchId' : branchId}
     rq = requests.get(API_URL_hours, params=params_hours)
     hoursStringHTML = rq.text
-    import re
     cleanr = re.compile('<.*?>|\s')
     hoursString = re.sub(cleanr, '', hoursStringHTML)
     #This section is to ensure if the shop is closed, correct times are displayed
