@@ -3,8 +3,8 @@ import html
 import re
 limit = 3
 radius = 15
-lat = 52.824201
-lng = 1.389848
+lat = 52.635875
+lng = 1.301
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
     params = {
@@ -64,6 +64,74 @@ def get_sainsburys_data(lat,lng):
             closedDayHours = {  'day' : dayKeys[len(hoursArray)],
                                 'open' : False  }
             hoursArray.append(closedDayHours)
+    return hoursArray
+
+def get_asda_data(lat,lng):
+    import json
+    API_URL = "https://storelocator.asda.com/index.html"
+    params = { 'q' : "{0},{1}".format(lat,lng)}
+    headers = {
+    "accept": "application/json",
+  }
+    rq = requests.get(API_URL,params=params, headers = headers)
+    if rq.status_code != 200:
+        print(rq.json())
+        return False
+    # res = json.dumps(rq.text)
+    try:
+        res = rq.json()["response"]
+        if res["count"] == 0:
+            return False
+    except:
+        return False
+    i = 0 
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (res["entities"][0]["name"])
+    #e.g.:
+    # while True:
+    #     if name != res["entities"][i]["name"]:
+    #         i += 1
+    #     else:
+    #         break
+    openingHours = res["entities"][i]["profile"]["hours"]["normalHours"]
+    hoursArray = []
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    for index in range(len(openingHours)):
+        if openingHours[index]["isClosed"] != False:
+            closedDayHours = {  'day' : dayKeys[index],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+        actualHours = []
+        for timeSlotNumber in range(len(openingHours[index]['intervals'])):
+            try:
+                actualHoursDict = {}
+                start = str(openingHours[index]['intervals'][timeSlotNumber]['start'])
+                if start == "0":
+                    start = "00:00"
+                elif len(start) == 3:
+                    start = "0{0}:{1}".format(start[0],start[1:])
+                else:
+                    start = "{0}:{1}".format(start[:2],start[2:])
+                end = str(openingHours[index]['intervals'][timeSlotNumber]['end'])
+                if end == "0":
+                    end = "00:00"
+                elif len(end) == 3:
+                    end = "0{0}:{1}".format(end[0],end[1:])
+                else:
+                    end = "{0}:{1}".format(end[:2],end[2:])
+                actualHoursDict['open'] = start
+                actualHoursDict['close'] = end
+                actualHours.append(actualHoursDict)
+            except:
+                #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+                closedDayHours = {  'day' : dayKeys[index],
+                                'open' : False  }
+                hoursArray.append(closedDayHours)
+                break
+        keyHours = {'day' : dayKeys[index],
+                'open' : True,
+                'hours' : actualHours
+                }
+        hoursArray.append(keyHours)
     return hoursArray
 
 def get_tesco_data(lat, lng):
@@ -432,7 +500,7 @@ def get_aldi_data(lat, lng):
 
 
 
-print(get_waitrose_data(lat,lng))
+print(get_asda_data(lat,lng))
 
 
 
