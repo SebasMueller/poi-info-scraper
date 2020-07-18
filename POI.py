@@ -64,6 +64,9 @@ def get_sainsburys_data(lat,lng):
             closedDayHours = {  'day' : dayKeys[len(hoursArray)],
                                 'open' : False  }
             hoursArray.append(closedDayHours)
+    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
+    if len(hoursArray) > 7:
+        return False
     return hoursArray
 
 def get_asda_data(lat,lng):
@@ -495,12 +498,80 @@ def get_aldi_data(lat, lng):
             hoursArray.append(closedDayHours)
     return hoursArray
 
+def get_coop_data(lat, lng):
+    API_URL = "https://api.coop.co.uk/locationservices/finder/food/"
+    params = {  'location' : "{0},{1}".format(lat,lng),
+                'distance' : radius*1000,
+                'min_distance' : "0",
+                'min_results' : "0",
+                'format' : "json"}
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        print(rq.json())
+        return False
+    try:
+        res = rq.json()
+        if res['count'] == 0:
+            return False
+        res = res["results"]
+    except:
+        return False
+    i=0
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0]["name"])
+    #e.g.:
+    # while True:
+    #     if name != res[i]["name"]:
+    #         i += 1
+    #     else:
+    #         break
+    openingHours = res[i]["opening_hours"]
+    intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    hoursArray = []
+    for index in range(len(openingHours)):#
+        print(index)
+        key = intermediaryDayKeys[openingHours[index]['name']]  #turn key into int
+        print(openingHours[index]['name'])
+        actualHours = []
+        while len(hoursArray) < key:
+            #Incase store is closed on a day of the week and therefore not included in the list 
+            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+        try:
+            if openingHours[index]["label"].find("los") != -1:
+                #incase the world closed/closure/Closed/Closure is in the label
+                closedDayHours = {  'day' : dayKeys[key],
+                            'open' : False  }
+                hoursArray.append(closedDayHours)
+            else:
+                actualHoursDict = {}
+                actualHoursDict['open'] = openingHours[index]['opens']
+                actualHoursDict['close'] = openingHours[index]['closes']
+                actualHours = [actualHoursDict]
+                keyHours = {'day' : dayKeys[key],
+                    'open' : True,
+                    'hours' : actualHours
+                    }
+                hoursArray.append(keyHours)
+        except:
+            #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+            closedDayHours = {  'day' : dayKeys[key],
+                            'open' : False  }
+            hoursArray.append(closedDayHours)
+    while len(hoursArray) < 7:
+            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
+            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
+    if len(hoursArray) > 7:
+        return False
+    return hoursArray
 
 
 
-
-
-print(get_asda_data(lat,lng))
+print(get_tesco_data(lat,lng))
 
 
 
