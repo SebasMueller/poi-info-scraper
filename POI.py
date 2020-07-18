@@ -22,7 +22,12 @@ def get_sainsburys_data(lat,lng):
     if rq.status_code != 200:
         # print(rq.json())
         return False
-    res = rq.json()
+    try:
+        res = rq.json()
+        if res["page_meta"]["total"] == 0:
+            return False
+    except:
+        return False
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
     i=0
     #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (res[0]['name'] or res[0]['other_name'])
@@ -151,7 +156,12 @@ def get_tesco_data(lat, lng):
     if rq.status_code != 200:
         print(rq.json())
         return False
-    res = rq.json()['results']
+    try:
+        res = rq.json()['results']
+        if len(res) == 0:
+            return False
+    except:
+        return False
     i=0
     #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (res[0]['location']['name'])
     #e.g.:
