@@ -539,9 +539,7 @@ def get_coop_data(lat, lng):
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
     hoursArray = []
     for index in range(len(openingHours)):#
-        print(index)
         key = intermediaryDayKeys[openingHours[index]['name']]  #turn key into int
-        print(openingHours[index]['name'])
         actualHours = []
         while len(hoursArray) < key:
             #Incase store is closed on a day of the week and therefore not included in the list 
@@ -579,9 +577,69 @@ def get_coop_data(lat, lng):
         return False
     return hoursArray
 
+def get_marks_and_spencers_data(lat, lng):
+    API_URL = "https://api.marksandspencer.com/v1/stores"
+    params = {  'apikey' : "aVCi8dmPbHgHrdCv9gNt6rusFK98VokK",
+                'latlong' : "{0},{1}".format(lat,lng),
+                'limit' : limit,
+                'radius' : radius}
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        print(rq.text)
+        return False
+    try:
+        res = rq.json()
+        if res['count'] == 0:
+            return False
+        res = res["results"]
+    except:
+        return False
+    i=0
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0]["name"])
+    #e.g.:
+    # while True:
+    #     if name != res[i]["name"]:
+    #         i += 1
+    #     else:
+    #         break
+    openingHours = res[i]["coreOpeningHours"]
+    intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    hoursArray = []
+    for index in range(len(openingHours)):
+        key = intermediaryDayKeys[openingHours[index]['day']]  #turn key into int
+        actualHours = []
+        while len(hoursArray) < key:
+            #Incase store is closed on a day of the week and therefore not included in the list 
+            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+        try:
+            actualHoursDict = {}
+            actualHoursDict['open'] = openingHours[index]['open']
+            actualHoursDict['close'] = openingHours[index]['close']
+            actualHours = [actualHoursDict]
+            keyHours = {'day' : dayKeys[key],
+                'open' : True,
+                'hours' : actualHours
+                }
+            hoursArray.append(keyHours)
+        except:
+            #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+            closedDayHours = {  'day' : dayKeys[key],
+                            'open' : False  }
+            hoursArray.append(closedDayHours)
+    while len(hoursArray) < 7:
+            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
+            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
+    if len(hoursArray) > 7:
+        return False
+    return hoursArray
 
-
-print(get_tesco_data(lat,lng))
+print(get_marks_and_spencers_data(lat,lng))
 
 
 
