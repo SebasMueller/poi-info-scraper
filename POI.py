@@ -5,11 +5,10 @@ from haversine import haversine
 import heapq
 limit = 1
 radius = 6
-# lat = 52.50003299
-lat = 52.635875
-# lng = 13.3913285
-lng = 1.301
-R = 6371
+lat = 52.635875 #uk - norfolk
+lng = 1.301 #uk - norfolk
+# lat = 52.50003299 #germany - berlin
+# lng = 13.3913285 #germany - berlin
 
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
