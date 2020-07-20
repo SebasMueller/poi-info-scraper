@@ -1,10 +1,16 @@
 import requests
 import html
 import re
-limit = 3
-radius = 15
+from haversine import haversine
+import heapq
+limit = 1
+radius = 6
+# lat = 52.50003299
 lat = 52.635875
+# lng = 13.3913285
 lng = 1.301
+R = 6371
+
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
     params = {
@@ -26,6 +32,7 @@ def get_sainsburys_data(lat,lng):
         res = rq.json()
         if res["page_meta"]["total"] == 0:
             return False
+        res = res["results"]
     except:
         return False
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
@@ -37,7 +44,9 @@ def get_sainsburys_data(lat,lng):
     #         i += 1
     #     else:
     #         break
-    openingHours = res['results'][i]['opening_times']
+    if res[i]["distance"] > radius * 0.621371:
+        return False
+    openingHours = res[i]['opening_times']
     hoursArray = []
     for index in range(len(openingHours)):
         key = openingHours[index]['day']
@@ -100,6 +109,8 @@ def get_asda_data(lat,lng):
     #         i += 1
     #     else:
     #         break
+    if res["entities"][i]["distance"]["distanceKilometers"] > radius:
+        return False
     openingHours = res["entities"][i]["profile"]["hours"]["normalHours"]
     hoursArray = []
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
@@ -170,6 +181,8 @@ def get_tesco_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    if res[i]["distanceFrom"]["value"] > 0.621371*radius:
+        return False
     openingHours = res[i]['location']['openingHours'][0]['standardOpeningHours']
     dayKeys = { 'mo' : 'Monday', 'tu' : 'Tuesday', 'we' : 'Wednesday', 'th' : 'Thursday', 'fr' : 'Friday', 'sa' : 'Saturday', 'su' : 'Sunday'}
     hoursArray = []
@@ -221,6 +234,8 @@ def get_morrisons_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    if res[i]["distance"] > radius * 1000:
+        return False 
     openingHours = res[i]['openingTimes']
     dayKeys = { 'mon' : 'Monday', 'tue' : 'Tuesday', 'wed' : 'Wednesday', 'thu' : 'Thursday', 'fri' : 'Friday', 'sat' : 'Saturday', 'sun' : 'Sunday'}
     hoursArray = []
@@ -264,6 +279,11 @@ def get_waitrose_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    storeLat, storeLng = res[i]["latitude"], res[i]["longitude"]
+    #compute distance between the two points using the haversine function
+    storeDistance = haversine((lat, lng),(storeLat, storeLng))
+    if storeDistance > radius:
+        return False
     branchId = res[i]['branchId']
     params_hours = { 'branchId' : branchId}
     rq = requests.get(API_URL_hours, params=params_hours)
@@ -466,6 +486,9 @@ def get_aldi_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    distance = float(res[i]["distance"].split(" ")[0]) * 1.60934
+    if distance > radius:
+        return False
     openingHours = res[i]["openingTimes"]
     hoursArray = []
     for index in range(len(openingHours)):
@@ -534,6 +557,8 @@ def get_coop_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    if res[i]["distance"]["m"] > radius * 1000:
+        return False
     openingHours = res[i]["opening_hours"]
     intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
@@ -602,6 +627,8 @@ def get_marks_and_spencers_data(lat, lng):
     #         i += 1
     #     else:
     #         break
+    if res[i]["distance"] > radius * 1000:
+        return False
     openingHours = res[i]["coreOpeningHours"]
     intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
@@ -639,7 +666,100 @@ def get_marks_and_spencers_data(lat, lng):
         return False
     return hoursArray
 
-print(get_marks_and_spencers_data(lat,lng))
+def get_iceland_data(lat, lng):
+    API_URL = "https://www.iceland.co.uk/on/demandware.store/Sites-icelandfoodsuk-Site/default/Stores-GetNearestStores"
+    params = {  'latitude' : lat,
+                'longitude' : lng,
+                'countryCode' : "GB",
+                'distanceUnit' : "km", #NOTE might need to change to "mi" for api to function?
+                'maxdistance' : radius}
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        print(rq.json())
+        return False
+    try:
+        res = rq.json()
+        if len(res['stores']) == 0:
+            return False
+        res = res["stores"]
+    except:
+        return False
+    storeHeap = []
+    for index in range(len(res)):
+        storeLat, storeLng = float(res[index]["latitude"]), float(res[index]["longitude"])
+        #compute distance between the two points using the haversine function
+        storeDistance = haversine((lat, lng),(storeLat, storeLng))
+        heapq.heappush([storeDistance,res[index]])
+    res = storeHeap
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0][1]["name"])
+    #e.g.:
+    # while True:
+    #     if name != res[i][1]["name"]:
+    #         i += 1
+    #     else:
+    #         break 
+    if res[i][0] > radius:
+        return False
+    openingHours = res[i][1]["storeHours"]
+    ##NOTE WIP
+    return False
+
+def get_edeka_data(lat, lng):
+    API_URL = "https://www.edeka.de/api/marketsearch/markets"
+    params = {  'coordinates' : "lat={0}&lon={1}".format(lat, lng)}
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        print(rq.json())
+        return False
+    try:
+        res = rq.json()
+        if res["totalCount"] == 0 or len(res['markets']) == 0:
+            return False
+        res = res["markets"]
+    except:
+        return False
+    i = 0
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0]["name"])
+    #e.g.:
+    # while True:
+    #     if name != res[i]["name"]:
+    #         i += 1
+    #     else:
+    #         break 
+    storeLat, storeLng = float(res[i]["coordinates"]["lat"]), float(res[i]["coordinates"]["lon"])
+    #compute distance between the two points using the haversine function
+    storeDistance = haversine((lat, lng),(storeLat, storeLng))
+    if storeDistance > radius:
+        return False
+    openingHours = res[i]["businessHours"]
+    dayKeys = { 'monday' : 'Monday', 'tuesday' : 'Tuesday', 'wednesday' : 'Wednesday', 'thursday' : 'Thursday', 'friday' : 'Friday', 'saturday' : 'Saturday', 'sunday' : 'Sunday'}
+    hoursArray = []
+    for key in ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']:
+        try:
+            actualHours = { 'open' : openingHours[key]['from'],
+                            'close' : openingHours[key]['to']}
+            keyHours = {'day' : dayKeys[key],
+                    'open' : True,
+                    'hours' : [actualHours]
+                    }
+        except:
+            keyHours = {'day' : dayKeys[key],
+                    'open' : False}
+        hoursArray.append(keyHours)
+    return hoursArray
+
+
+# print(get_sainsburys_data(lat,lng))
+# print(get_asda_data(lat,lng))
+# print(get_tesco_data(lat,lng))
+# print(get_morrisons_data(lat,lng))
+print(get_waitrose_data(lat,lng))
+# print(get_aldi_data(lat,lng))
+# print(get_coop_data(lat,lng))
+# print(get_marks_and_spencers_data(lat,lng))
+# print(get_iceland_data(lat,lng))
+# print(get_edeka_data(lat,lng))
+# print(get_rewe_data(lat,lng))
 
 
 
