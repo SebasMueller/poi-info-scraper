@@ -684,12 +684,13 @@ def get_iceland_data(lat, lng):
     except:
         return False
     storeHeap = []
-    for index in range(len(res)):
+    for index in res:
         storeLat, storeLng = float(res[index]["latitude"]), float(res[index]["longitude"])
         #compute distance between the two points using the haversine function
         storeDistance = haversine((lat, lng),(storeLat, storeLng))
-        heapq.heappush([storeDistance,res[index]])
+        heapq.heappush(storeHeap, [storeDistance,res[index]])
     res = storeHeap
+    i = 0
     #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0][1]["name"])
     #e.g.:
     # while True:
@@ -700,8 +701,51 @@ def get_iceland_data(lat, lng):
     if res[i][0] > radius:
         return False
     openingHours = res[i][1]["storeHours"]
-    ##NOTE WIP
-    return False
+    cleanr = re.compile('<.*?>|\s|-')
+    hoursString = re.sub(cleanr, '', openingHours)
+    openingHoursArray = hoursString.split("day")[1:]
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    hoursArray = []
+    for index in range(len(openingHoursArray)):
+        openingHoursArray[index] = openingHoursArray[index].split("M")[:2]
+        for index1 in [0,1]:
+            try:
+                word = openingHoursArray[index][index1]
+                wordSplit = word.split(":")
+                if word[-1] == 'A':
+                    if wordSplit[0] == "12":
+                        word = "00:{0}".format(wordSplit[1][:-1])
+                    elif len(wordSplit[0]) == 1:
+                        word = "0" + word[:-1]
+                    elif len(wordSplit[0]) == 2:
+                        word = word[:-1]
+                    else: 
+                        word = False
+                elif word[-1] == 'P':
+                    if wordSplit[0] == "12":
+                        word = word[:-1]
+                    elif len(wordSplit[0]) < 3:
+                        word = str( int(wordSplit[0]) + 12) + ":" + wordSplit[1][:-1]
+                    else:
+                        word = False
+                openingHoursArray[index][index1] = word
+            except:
+                openingHoursArray[index][index1] = False
+        if not openingHoursArray[index][0] or not openingHoursArray[index][1]:
+            closedDayHours = {  'day' : dayKeys[index],
+                                'open' : False  }
+            hoursArray.append(closedDayHours)
+        else:
+            actualHoursDict = {}
+            actualHoursDict['open'] = openingHoursArray[index][0]
+            actualHoursDict['close'] = openingHoursArray[index][1]
+            actualHours = [actualHoursDict]
+            keyHours = {'day' : dayKeys[index],
+                'open' : True,
+                'hours' : actualHours
+                }
+            hoursArray.append(keyHours)
+    return hoursArray
 
 def get_edeka_data(lat, lng):
     API_URL = "https://www.edeka.de/api/marketsearch/markets"
@@ -752,11 +796,11 @@ def get_edeka_data(lat, lng):
 # print(get_asda_data(lat,lng))
 # print(get_tesco_data(lat,lng))
 # print(get_morrisons_data(lat,lng))
-print(get_waitrose_data(lat,lng))
+# print(get_waitrose_data(lat,lng))
 # print(get_aldi_data(lat,lng))
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
-# print(get_iceland_data(lat,lng))
+print(get_iceland_data(lat,lng))
 # print(get_edeka_data(lat,lng))
 # print(get_rewe_data(lat,lng))
 
