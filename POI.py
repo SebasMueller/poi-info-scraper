@@ -3,14 +3,12 @@ import html
 import re
 from haversine import haversine
 import heapq
-import pandas as pd
 limit = 1
 radius = 6
 lat = 52.635875 #uk - norfolk
 lng = 1.301 #uk - norfolk
 # lat = 52.50003299 #germany - berlin
 # lng = 13.3913285 #germany - berlin
-
 
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
@@ -802,108 +800,11 @@ def get_edeka_data(lat, lng):
 # print(get_aldi_data(lat,lng))
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
-# print(get_iceland_data(lat,lng))
+print(get_iceland_data(lat,lng))
 # print(get_edeka_data(lat,lng))
 # print(get_rewe_data(lat,lng))
 
 
-
-
-# def set_up_rewe_database():
-#     API_URL = "https://www.rewe.de/market/content/marketsearch"
-#     headers =   {
-#                 "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-#                 "accept-language": "en-US,en;q=0.9",
-#                 "sec-fetch-dest": "document",
-#                 "sec-fetch-mode": "navigate",
-#                 "sec-fetch-site": "none",
-#                 "sec-fetch-user": "?1",
-#                 "upgrade-insecure-requests": "1"
-#                 }
-#     params = {  'searchString' : "REWE",
-#                 'pageSize' : 500,
-#                 'page' : 0}
-#     rq = requests.get(API_URL, params=params, headers=headers)
-#     return rq.headers
-#     # return rq.json()
-
-def set_up_rewe_database():
-    API_URL = "https://www.rewe.de/market/content/marketsearch"
-    headers = { 'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-'accept-encoding' : 'gzip, deflate, br',
-'accept-language' : 'en-US,en;q=0.9',
-'cookie' : '__cfduid=db5af145879fa528cdc49e71524c8b7061595084630; marketsCookie=%7B%22online%22%3A%7B%7D%2C%22stationary%22%3A%7B%7D%7D; _rdfa=s%3A126df54d-759a-4c72-96fa-adb89d516293.vOq3Ob09GkqUbAbeqjTEqfzFJA6%2BMcgTDIsgUmjmiEY; optimizelyEndUserId=oeu1595084629986r0.3863291096414083; s_ecid=MCMID%7C36414559052995952261825858857003753624; AMCV_65BE20B35350E8DE0A490D45%40AdobeOrg=870038026%7CMCMID%7C36414559052995952261825858857003753624%7CMCAID%7CNONE%7CMCOPTOUT-1595091831s%7CNONE%7CvVersion%7C5.0.0; consentSettings={%22tms%22:1%2C%22necessaryCookies%22:1%2C%22cmpPlatform%22:1%2C%22marketingBilling%22:1%2C%22fraudProtection%22:1%2C%22advertisingOnsite%22:1%2C%22marketingOnsite%22:1%2C%22sessionMonitoring%22:0%2C%22serviceMonitoring%22:1%2C%22abTesting%22:1%2C%22conversionOptimization%22:1%2C%22feederAnalytics%22:1%2C%22analytics%22:1%2C%22personalAdsOnsite%22:0%2C%22remarketingOffsite%22:0%2C%22userProfiling%22:0%2C%22status%22:1}; mtc=s%3AILZZmRcOVxjEa6xXtaWbompKVy8iMTBiNjMtVm54VndlK2p2TkJ6eVhoSUdLZHhoMUlIbWFjIijAA7QH%2FgeWCJoI%2BAWeAtoGugvmBdgGqgf8BdIGkAiSBvwGhgSwB4IIAAK2BgA%3D.cSDSKlhDdYw42mtAr0z2t3yQd%2BAHhdexpHtyTMAByGc; icVarSave=; s_vnum=1596236400929%26vn%3D2; s_cc=true; s_sq=%5B%5BB%5D%5D; c_lpv_a=1595331468570|seo_google_nn_nn_nn_nn_nn_nn_nn; perfTimings=event180=0.00%2Cevent181=0.00%2Cevent182=0.00%2Cevent183=0.00%2Cevent184=0.31%2Cevent185=0.05%2Cevent186=2.03%2Cevent187=0.04%2Cevent188=2.42%2Cevent189%3Brewe-de:marktsuche; perfLoad=2.42; MRefererUrl=direct; s_nr=1595331958531-Repeat; __cfruid=c92deec212bf2102774808ac8552210554ef1923-1595333071; rstp=eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJhZXMxOTIiOiIzMGQ1YmMzZGUzZjUwODBhYWRjNDkyODg3ODdkYjc3MmMyZWRlMWM1ZWE3NGQ0NjcxMWQ1MTQzOWFhZjY4NTVjNGYwNGZlMWEwZGMyYTkzN2ZhYjFkZjQzMWFiMWI2NTE0MTkzYjJkNjgwOWYwMTNmMmY3NTI0MGE4ZDEyZGRhYyIsImlhdCI6MTU5NTMzNzI2NSwiZXhwIjoxNTk1MzM3ODY1fQ.h5WwMUcCTr2B0Z7jS3KFpYgHrYuWKN181lyGZOHqRt5euO27qNkFu-aF6GxpVcKLwdxqOq5rjodxeyQcTtUC1Q; __cf_bm=edfa252909f30704b7292d7d654016c9a68fce3f-1595337265-1800-AUlXjCqpS9QmhLget47yj0hMLukY107Lo3cUgyTgNp5HPxQSe2ekoxsphdzLEEfpb+YjODc6uXNNCpLe1XYgFBM=',
-'sec-fetch-dest' : 'document',
-'sec-fetch-mode' : 'navigate',
-'sec-fetch-site' : 'none',
-'sec-fetch-user' : '?1',
-'upgrade-insecure-requests' : '1',
-'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36',
-    }
-    pageStoreCount = 1
-    page = 0
-    reweDB = pd.DataFrame(columns=['Coordinates', 'OpeningHours'])
-    while pageStoreCount > 0:
-        params = {  'searchString' : "REWE",
-                    'pageSize' : 500,
-                    'page' : page}
-        rq = requests.get(API_URL, params=params, headers=headers)
-        if rq.status_code != 200:
-            print(rq.headers)
-            return False
-        try:
-            res = rq.json()
-            if res["total"] == 0:
-                return False
-            res = res["markets"]
-            pageStoreCount = len(res)
-        except:
-            return False
-        intermediaryDayKeys = { 'MONDAY' : 0, 'TUESDAY' : 1, 'WEDNESDAY' : 2, 'THURDSAY' : 3, 'FRIDAY' : 4, 'SATURDAY' : 5, 'SUNDAY' : 6}
-        dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
-        # dayKeys = { -7 : 'Monday', -6 : 'Tuesday', -5 : 'Wednesday', -4 : 'Thursday', -3 : 'Friday', -2 : 'Saturday', -1 : 'Sunday', 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
-        for batch in range(len(res)):
-            for index in range(len(res[batch])):
-                daysHeap = []
-                openingHours = res[batch][index]["openingHours"]["dayAndTimeRanges"]
-                for dayRange in openingHours:
-                    startDay = intermediaryDayKeys[openingHours[dayRange]["startDay"]]
-                    endDay = intermediaryDayKeys[openingHours[dayRange]["endDay"]]
-                    opens = openingHours[dayRange]["opens"]
-                    closes = openingHours[dayRange]["closes"]
-                    actualHours = [{'open' : opens, 'close' : closes}]
-                    #deal with 1 day ranges
-                    if endDay == None:
-                        endDay = startDay
-                    #deal with wrap around windows e.g. sunday to tuesday (this is done via the additional set of negative dictionary keys)
-                    if startDay > endDay:
-                        startDay += -7
-                    for day in range(startDay, endDay+1):
-                        if day < 0:
-                            day += 7
-                        keyHours = {'day' : dayKeys[day],
-                        'open' : True,
-                        'hours' : actualHours
-                        }
-                        heapq.heappush(daysHeap, [day,keyHours])
-                # simple heap method to check for any missing days (method which could be deployed to all other API functions quite easily)
-                checkedUpToDay = -1
-                for day in daysHeap:
-                    checkedUpToDay += 1
-                    while day[0] < checkedUpToDay:
-                        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                                'open' : False  }
-                        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-                        checkedUpToDay += 1
-                while len(daysHeap) < 7:
-                    checkedUpToDay = daysHeap[-1][0] + 1 
-                    closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                                'open' : False  }
-                    daysHeap.append([[checkedUpToDay, closedDayHours]])
-                return daysHeap
-
-                
-# print(set_up_rewe_database())
 
 
 
