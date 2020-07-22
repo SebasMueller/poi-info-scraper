@@ -1,8 +1,11 @@
 import requests
+import urllib.request
+import json
 import html
 import re
-from haversine import haversine
+from haversine import haversine, haversine_vector
 import heapq
+import pandas as pd
 limit = 1
 radius = 6
 lat = 52.635875 #uk - norfolk
@@ -10,6 +13,103 @@ lng = 1.301 #uk - norfolk
 # lat = 52.50003299 #germany - berlin
 # lng = 13.3913285 #germany - berlin
 
+def set_up_rewe_database():
+    API_URL = "https://www.rewe.de/market/content/marketsearch"
+    headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.98 Safari/537.36",
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+                "accept-language": "en-US,en;q=0.9",
+                "sec-fetch-dest": "document",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-site": "none",
+                "sec-fetch-user": "?1",
+                "upgrade-insecure-requests": "1" 
+              }
+    pageStoreCount = 1
+    page = 0
+    reweArray = []
+    intermediaryDayKeys = { 'MONDAY' : 0, 'TUESDAY' : 1, 'WEDNESDAY' : 2, 'THURSDAY' : 3, 'FRIDAY' : 4, 'SATURDAY' : 5, 'SUNDAY' : 6, None : None}
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    while pageStoreCount > 0:
+        params = {  'searchString' : "REWE",
+                    'pageSize' : 500,
+                    'page' : page}
+        try:
+            req_url = API_URL + '?' + '&'.join(k + '=' + str(v) for k, v in params.items())
+            rq = urllib.request.urlopen(urllib.request.Request(url=req_url, data=None, headers=headers))
+            if rq.status != 200:
+                return False
+            data = rq.read().decode('utf-8')
+            res = json.loads(data)
+            if res["total"] == 0:
+                return False
+            res = res["markets"]
+            pageStoreCount = len(res)
+        except:
+            return False
+        # print(res[347]["openingHours"]["dayAndTimeRanges"])
+        for index in range(len(res)):
+            dayDoneSet = set()
+            daysHeap = []
+            openingHours = res[index]["openingHours"]["dayAndTimeRanges"]
+            for dayRange in range(len(openingHours)):
+                startDay = intermediaryDayKeys[openingHours[dayRange]["startDay"]]
+                endDay = intermediaryDayKeys[openingHours[dayRange]["endDay"]]
+                opens = openingHours[dayRange]["opens"]
+                closes = openingHours[dayRange]["closes"]
+                actualHours = [{'open' : opens, 'close' : closes}]
+                #deal with 1 day ranges
+                if endDay == None:
+                    endDay = startDay
+                #deal with wrap around windows e.g. sunday to tuesday
+                if startDay > endDay:
+                    startDay += -7
+                for day in range(startDay, endDay+1):
+                    if day < 0:
+                        day += 7
+                    #if statement to deal with incorrect responses where multiple ranges cover the same day (implemnted due to a bug in their system)
+                    if day not in dayDoneSet:
+                        dayDoneSet.add(day)
+                        keyHours = {'day' : dayKeys[day],
+                        'open' : True,
+                        'hours' : actualHours
+                        }
+                        heapq.heappush(daysHeap, [day,keyHours])
+            # simple heap method to check for any missing days (method which could be deployed to all other API functions quite easily)
+            checkedUpToDay = -1
+            for day in heapq.nsmallest(7, daysHeap):
+                checkedUpToDay += 1
+                while day[0] > checkedUpToDay:
+                    closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                            'open' : False  }
+                    heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+                    checkedUpToDay += 1
+            while len(daysHeap) < 7:
+                if len(daysHeap) > 0:
+                    checkedUpToDay = daysHeap[-1][0] + 1
+                else:
+                    # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+                    checkedUpToDay = 0
+                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                            'open' : False  }
+                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            if len(daysHeap) != 7:
+                return False
+            hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+            coords = res[index]["geoLocation"]
+            reweArray.append([(float(coords["latitude"]),float(coords["longitude"])), hoursArray])
+        page += 1
+    reweDB = pd.DataFrame(reweArray, columns=['Coordinates', 'OpeningHours'])
+    reweDB.to_csv("REWE.csv")
+    return True
+
+
+def get_rewe_data(lat, lng):
+    desiredCoords = [lat, lng]
+    reweDB = pd.read_csv("REWE.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
+    reweDB["Distances"] = haversine_vector([desiredCoords]*len(reweDB["Coordinates"]), list(reweDB["Coordinates"]))
+    closestStoreIndex = reweDB["Distances"].idxmin()
+    return reweDB["OpeningHours"][closestStoreIndex]
+    
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
     params = {
@@ -800,14 +900,9 @@ def get_edeka_data(lat, lng):
 # print(get_aldi_data(lat,lng))
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
-print(get_iceland_data(lat,lng))
+# print(get_iceland_data(lat,lng))
 # print(get_edeka_data(lat,lng))
 # print(get_rewe_data(lat,lng))
-
-
-
-
-
 
 
 
