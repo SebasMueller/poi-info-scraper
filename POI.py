@@ -9,10 +9,10 @@ import pandas as pd
 from dateutil import parser
 limit = 1
 radius = 6
-lat = 52.635875 #uk - norfolk
-lng = 1.301 #uk - norfolk
-# lat = 52.50003299 #germany - berlin
-# lng = 13.3913285 #germany - berlin
+# lat = 52.635875 #uk - norfolk
+# lng = 1.301 #uk - norfolk
+lat = 52.50003299 #germany - berlin
+lng = 13.3913285 #germany - berlin
 
 def set_up_rewe_database():
     API_URL = "https://www.rewe.de/market/content/marketsearch"
@@ -180,12 +180,166 @@ def get_rewe_data(lat, lng):
     return reweDB["OpeningHours"][closestStoreIndex]
 
 def get_netto_data(lat, lng):
+    #pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list) :
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
     desiredCoords = [lat, lng]
     nettoDB = pd.read_csv("Netto.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
     nettoDB["Distances"] = haversine_vector([desiredCoords]*len(nettoDB["Coordinates"]), list(nettoDB["Coordinates"]))
     closestStoreIndex = nettoDB["Distances"].idxmin()
-    return nettoDB["OpeningHours"][closestStoreIndex]
+    if returnDistanceToo:
+        return nettoDB["Distances"][closestStoreIndex], nettoDB["OpeningHours"][closestStoreIndex]
+    else:
+        return nettoDB["OpeningHours"][closestStoreIndex]
     
+def get_netto_marken_discount_data(lat, lng):
+    #pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list) :
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    API_URL = "https://www.netto-online.de/INTERSHOP/web/WFS/Plus-NettoDE-Site/de_DE/-/EUR/ViewNettoStoreFinder-GetStoreItems"
+        #The conversion rates below have been estimated through experimentation, and should approximately preserve radius (although the geometry will be a cross between a square and a circle)
+    params = {  's' : float(lat) - radius / 70,
+                'n' : float(lat) + radius / 70,
+                'w' : float(lng) - radius / 110,
+                'e' : float(lng) + radius / 110
+             }
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        return False
+    try:
+        res = rq.json()
+        if len(res) == 0:
+            print(2)
+            return False
+    except:
+        return False
+    storeHeap = []
+    for index in range(len(res)):
+        storeLat, storeLng = float(res[index]["coord_latitude"]), float(res[index]["coord_longitude"])
+        #compute distance between the two points using the haversine function
+        storeDistance = haversine((lat, lng),(storeLat, storeLng))
+        heapq.heappush(storeHeap, [storeDistance,res[index]])
+    res = heapq.nsmallest(limit, storeHeap)
+    i = 0
+    #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!!
+    #e.g.:
+    # while True:
+    #     if name != res[0]['name'] or res[0]['other_name']:
+    #         i += 1
+    #     else:
+    #         break
+    intermediaryDayKeys = { 'Mo.' : 0, 'Di.' : 1, 'Mi.' : 2, 'Do.' : 3, 'Fr.' : 4, 'Sa.' : 5, 'So.' : 6, None : None}
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    dayDoneSet = set()
+    daysHeap = []
+    storeDistance = res[i][0]
+    openingHours = res[i][1]["store_opening"]
+    dayRanges = openingHours.split("<br />")[:-1]
+    for dayRange in range(len(dayRanges)):
+        daysAndTimes = dayRanges[dayRange].split(":")
+        days = daysAndTimes[0]
+        days = days.split("-")
+        startDay = intermediaryDayKeys[days[0]]
+        if len(days) == 1:
+            endDay = startDay
+        elif len(days) == 2:
+            endDay = intermediaryDayKeys[days[1]]
+        else:
+            return False
+        #deal with wrap around windows e.g. sunday to tuesday
+        if startDay > endDay:
+            startDay += -7
+        times = daysAndTimes[1]
+        if "geschlossen" in times:
+            for day in range(startDay, endDay+1):
+                if day < 0:
+                    day += 7
+                #if statement to deal with incorrect responses where multiple ranges cover the same day (implemnted due to a bug in their system)
+                if day not in dayDoneSet:
+                    dayDoneSet.add(day)
+                    closedDayHours = {  'day' : dayKeys[day],
+                                'open' : False  }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+        else:
+            try:
+                times = times.replace(".",":")
+                times = times.split()
+                if len(times) != 4:
+                    #means this method is non exhaustive (e.g. multiple time slots) and must be amended 
+                    return False
+                opens = times[0]
+                closes = times[2]
+                if len(opens) == 4:
+                    opens = "0" + opens
+                if len(closes) == 4:
+                    closes = "0" + closes
+                if len(opens) != 5 or len(closes) != 5:
+                    #means this method is non exhaustive (e.g. doesnt catch store closure) and must be amended 
+                    return False
+                actualHours = [{'open' : opens, 'close' : closes}]
+                for day in range(startDay, endDay+1):
+                    if day < 0:
+                        day += 7
+                    #if statement to deal with incorrect responses where multiple ranges cover the same day (implemnted due to a bug in their system)
+                    if day not in dayDoneSet:
+                        dayDoneSet.add(day)
+                        keyHours = {'day' : dayKeys[day],
+                        'open' : True,
+                        'hours' : actualHours
+                        }
+                        heapq.heappush(daysHeap, [day,keyHours])
+            except:
+                for day in range(startDay, endDay+1):
+                    if day < 0:
+                        day += 7
+                    #if statement to deal with incorrect responses where multiple ranges cover the same day (implemnted due to a bug in their system)
+                    if day not in dayDoneSet:
+                        dayDoneSet.add(day)
+                        closedDayHours = {  'day' : dayKeys[day],
+                                    'open' : False  }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+    # simple heap method to check for any missing days (method which could be deployed to all other API functions quite easily)
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
+        else:
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                        'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
+        return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+    if returnDistanceToo:
+        return storeDistance, hoursArray
+    else:
+        return hoursArray
+
+def get_netto_brands_data(lat, lng):
+    netto = get_netto_data([lat], [lng])
+    nettoMD = get_netto_marken_discount_data([lat], [lng])
+    if netto[0] < nettoMD[0]:
+        return netto[1]
+    else:
+        return nettoMD[1]
+
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
     params = {
@@ -949,7 +1103,7 @@ def get_iceland_data(lat, lng):
         #compute distance between the two points using the haversine function
         storeDistance = haversine((lat, lng),(storeLat, storeLng))
         heapq.heappush(storeHeap, [storeDistance,res[index]])
-    res = storeHeap
+    res = heapq.nsmallest(limit, storeHeap)
     i = 0
     #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0][1]["name"])
     #e.g.:
@@ -1062,9 +1216,11 @@ def get_edeka_data(lat, lng):
 
 #Print statements to test opening hours retrieval functions.
 
-# print(get_rewe_data(lat,lng))
-# print(get_netto_data(lat, lng))
-# print(get_edeka_data(lat,lng))
+print(get_rewe_data(lat,lng))
+print(get_netto_data(lat, lng))
+print(get_netto_marken_discount_data(lat, lng))
+print(get_netto_brands_data(lat, lng))
+print(get_edeka_data(lat,lng))
 # print(get_sainsburys_data(lat,lng))
 # print(get_asda_data(lat,lng))
 # print(get_tesco_data(lat,lng))
