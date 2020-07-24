@@ -6,6 +6,7 @@ import re
 from haversine import haversine, haversine_vector
 import heapq
 import pandas as pd
+from dateutil import parser
 limit = 1
 radius = 6
 lat = 52.635875 #uk - norfolk
@@ -102,6 +103,74 @@ def set_up_rewe_database():
     reweDB.to_csv("REWE.csv")
     return True
 
+def set_up_netto_database():
+    API_URL = "https://netto.de/umbraco/api/StoresData/StoresV2"
+    nettoArray = []
+    dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    try:
+        rq = requests.get("https://netto.de/umbraco/api/StoresData/StoresV2")
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
+    for index in range(len(res)):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res[index]["hours"]
+        for dayIndex in range(len(openingHours)):
+            #potential weakness if a bugged date is retrieved and the datetime parser raises an exception?
+            day = parser.parse(openingHours[dayIndex]["date"]).weekday()
+            if day not in dayDoneSet:
+                try:
+                    dayDoneSet.add(day)
+                    #keyHours processing code
+                    if openingHours[dayIndex]["closed"] == False:
+                        opens = parser.parse(openingHours[dayIndex]["open"]).strftime("%H:%M")
+                        closes = parser.parse(openingHours[dayIndex]["close"]).strftime("%H:%M")
+                        actualHours = {'open' : opens,
+                                'close' : closes}
+                        keyHours = {'day' : dayKeys[day],
+                        'open' : True,
+                        'hours' : [actualHours]
+                        }
+                        heapq.heappush(daysHeap, [day,keyHours])
+                    else:
+                        closedDayHours = {  'day' : dayKeys[day],
+                        'open' : False  }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                except:
+                    closedDayHours = {  'day' : dayKeys[day],
+                        'open' : False  }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+        #Check for any missing days and ensure all days are in order for insertion into our database
+        checkedUpToDay = -1
+        for day in heapq.nsmallest(7, daysHeap):
+            checkedUpToDay += 1
+            while day[0] > checkedUpToDay:
+                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                        'open' : False  }
+                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+                checkedUpToDay += 1
+        while len(daysHeap) < 7:
+            if len(daysHeap) > 0:
+                checkedUpToDay = daysHeap[-1][0] + 1
+            else:
+                # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+                checkedUpToDay = 0
+                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                            'open' : False  }
+                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+        if len(daysHeap) != 7:
+            return False
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        coords = res[index]["coordinates"]
+        nettoArray.append([(float(coords[1]),float(coords[0])), hoursArray])
+    nettoDB = pd.DataFrame(nettoArray, columns=['Coordinates', 'OpeningHours'])
+    nettoDB.to_csv("Netto.csv")
+    return True
+
+
 
 def get_rewe_data(lat, lng):
     desiredCoords = [lat, lng]
@@ -109,6 +178,13 @@ def get_rewe_data(lat, lng):
     reweDB["Distances"] = haversine_vector([desiredCoords]*len(reweDB["Coordinates"]), list(reweDB["Coordinates"]))
     closestStoreIndex = reweDB["Distances"].idxmin()
     return reweDB["OpeningHours"][closestStoreIndex]
+
+def get_netto_data(lat, lng):
+    desiredCoords = [lat, lng]
+    nettoDB = pd.read_csv("Netto.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
+    nettoDB["Distances"] = haversine_vector([desiredCoords]*len(nettoDB["Coordinates"]), list(nettoDB["Coordinates"]))
+    closestStoreIndex = nettoDB["Distances"].idxmin()
+    return nettoDB["OpeningHours"][closestStoreIndex]
     
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
@@ -157,9 +233,10 @@ def get_sainsburys_data(lat,lng):
             actualHours = []
             for timeSlotNumber in range(len(openingHours[index]['times'])):
                 try:
-                    actualHoursDict = {}
-                    actualHoursDict['open'] = openingHours[index]['times'][timeSlotNumber]['start_time']
-                    actualHoursDict['close'] = openingHours[index]['times'][timeSlotNumber]['end_time']
+                    opens = openingHours[index]['times'][timeSlotNumber]['start_time']
+                    closes = openingHours[index]['times'][timeSlotNumber]['end_time']
+                    actualHoursDict = { 'open' : opens,
+                                        'close' : closes}
                     actualHours.append(actualHoursDict)
                 except:
                     #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
@@ -976,8 +1053,18 @@ def get_edeka_data(lat, lng):
 
 
 
+#Print statements to test setting up of local database opening hours functions.
+
+# print(set_up_rewe_database())
+# print(set_up_netto_database())
+
+
+
 #Print statements to test opening hours retrieval functions.
 
+# print(get_rewe_data(lat,lng))
+# print(get_netto_data(lat, lng))
+# print(get_edeka_data(lat,lng))
 # print(get_sainsburys_data(lat,lng))
 # print(get_asda_data(lat,lng))
 # print(get_tesco_data(lat,lng))
@@ -987,9 +1074,6 @@ def get_edeka_data(lat, lng):
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
 # print(get_iceland_data(lat,lng))
-# print(get_edeka_data(lat,lng))
-# print(get_rewe_data(lat,lng))
-
 
 
 # # Copyable Heap structure code:
