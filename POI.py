@@ -146,42 +146,55 @@ def get_sainsburys_data(lat,lng):
     if res[i]["distance"] > radius * 0.621371:
         return False
     openingHours = res[i]['opening_times']
-    hoursArray = []
+    dayDoneSet = set()
+    daysHeap = []
     for index in range(len(openingHours)):
         key = openingHours[index]['day']
-        actualHours = []
-        while len(hoursArray) < key:
-            #Incase store is closed on a day of the week and therefore not included in the list
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-        for timeSlotNumber in range(len(openingHours[index]['times'])):
-            try:
-                actualHoursDict = {}
-                actualHoursDict['open'] = openingHours[index]['times'][timeSlotNumber]['start_time']
-                actualHoursDict['close'] = openingHours[index]['times'][timeSlotNumber]['end_time']
-                actualHours.append(actualHoursDict)
-            except:
-                #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
-                closedDayHours = {  'day' : dayKeys[key],
-                                'open' : False  }
-                hoursArray.append(closedDayHours)
-                break
-        keyHours = {'day' : dayKeys[key],
-                'open' : True,
-                'hours' : actualHours
-                }
-        hoursArray.append(keyHours)
-    while len(hoursArray) < 7:
-            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
-    if len(hoursArray) > 7:
+        #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+        if key not in dayDoneSet:
+            dayDoneSet.add(key)
+            #keyHours processing code
+            actualHours = []
+            for timeSlotNumber in range(len(openingHours[index]['times'])):
+                try:
+                    actualHoursDict = {}
+                    actualHoursDict['open'] = openingHours[index]['times'][timeSlotNumber]['start_time']
+                    actualHoursDict['close'] = openingHours[index]['times'][timeSlotNumber]['end_time']
+                    actualHours.append(actualHoursDict)
+                except:
+                    #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+                    closedDayHours = {  'day' : dayKeys[key],
+                                    'open' : False  }
+                    heapq.heappush(daysHeap, [key,closedDayHours])
+                    break
+            keyHours = {'day' : dayKeys[key],
+                    'open' : True,
+                    'hours' : actualHours
+                    }
+            heapq.heappush(daysHeap, [key,keyHours])
+    #Check for any missing days and ensure all days are in order for insertion into our database
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
+        else:
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
         return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
-
+    
 def get_asda_data(lat,lng):
     import json
     API_URL = "https://storelocator.asda.com/index.html"
@@ -212,44 +225,74 @@ def get_asda_data(lat,lng):
         return False
     openingHours = res["entities"][i]["profile"]["hours"]["normalHours"]
     hoursArray = []
+    intermediaryDayKeys = { 'MONDAY' : 0, 'TUESDAY' : 1, 'WEDNESDAY' : 2, 'THURSDAY' : 3, 'FRIDAY' : 4, 'SATURDAY' : 5, 'SUNDAY' : 6}
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
+    dayDoneSet = set()
+    daysHeap = []
     for index in range(len(openingHours)):
-        if openingHours[index]["isClosed"] != False:
-            closedDayHours = {  'day' : dayKeys[index],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-        actualHours = []
-        for timeSlotNumber in range(len(openingHours[index]['intervals'])):
-            try:
-                actualHoursDict = {}
-                start = str(openingHours[index]['intervals'][timeSlotNumber]['start'])
-                if start == "0":
-                    start = "00:00"
-                elif len(start) == 3:
-                    start = "0{0}:{1}".format(start[0],start[1:])
+            day = intermediaryDayKeys[openingHours[index]["day"]]
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if day not in dayDoneSet:
+                dayDoneSet.add(day)
+                if openingHours[index]["isClosed"] != False:
+                    closedDayHours = {  'day' : dayKeys[day],
+                                        'open' : False  }
+                    heapq.heappush(daysHeap, [day,closedDayHours])
                 else:
-                    start = "{0}:{1}".format(start[:2],start[2:])
-                end = str(openingHours[index]['intervals'][timeSlotNumber]['end'])
-                if end == "0":
-                    end = "00:00"
-                elif len(end) == 3:
-                    end = "0{0}:{1}".format(end[0],end[1:])
-                else:
-                    end = "{0}:{1}".format(end[:2],end[2:])
-                actualHoursDict['open'] = start
-                actualHoursDict['close'] = end
-                actualHours.append(actualHoursDict)
-            except:
-                #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
-                closedDayHours = {  'day' : dayKeys[index],
-                                'open' : False  }
-                hoursArray.append(closedDayHours)
-                break
-        keyHours = {'day' : dayKeys[index],
-                'open' : True,
-                'hours' : actualHours
-                }
-        hoursArray.append(keyHours)
+                    actualHours = []
+                    for timeSlotNumber in range(len(openingHours[index]['intervals'])):
+                        try:
+                            actualHoursDict = {}
+                            start = str(openingHours[index]['intervals'][timeSlotNumber]['start'])
+                            if start == "0":
+                                start = "00:00"
+                            elif len(start) == 3:
+                                start = "0{0}:{1}".format(start[0],start[1:])
+                            else:
+                                start = "{0}:{1}".format(start[:2],start[2:])
+                            end = str(openingHours[index]['intervals'][timeSlotNumber]['end'])
+                            if end == "0":
+                                end = "00:00"
+                            elif len(end) == 3:
+                                end = "0{0}:{1}".format(end[0],end[1:])
+                            else:
+                                end = "{0}:{1}".format(end[:2],end[2:])
+                            actualHoursDict['open'] = start
+                            actualHoursDict['close'] = end
+                            actualHours.append(actualHoursDict)
+                        except:
+                            #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+                            closedDayHours = {  'day' : dayKeys[day],
+                                            'open' : False  }
+                            heapq.heappush(daysHeap, [day,closedDayHours])
+                            break
+                    keyHours = {'day' : dayKeys[day],
+                            'open' : True,
+                            'hours' : actualHours
+                            }
+                    heapq.heappush(daysHeap, [day,keyHours])
+
+    #Check for any missing days and ensure all days are in order for insertion into our database     
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
+        else:
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
+        return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
 
 def get_tesco_data(lat, lng):
@@ -590,44 +633,59 @@ def get_aldi_data(lat, lng):
         return False
     openingHours = res[i]["openingTimes"]
     hoursArray = []
+    dayDoneSet = set()
+    daysHeap = []
     for index in range(len(openingHours)):
-        key = intermediaryDayKeys[openingHours[index]['day']]  #turn key into int
-        actualHours = []
-        while len(hoursArray) < key:
-            #Incase store is closed on a day of the week and therefore not included in the list 
-            #(although this is unlikely for ALDI, this check was added for Sainsbury API since how they deal with closed days is unclear,
-            #whereas it is unlikely ALDI's API would miss a day, so this check could potentially be removed if desired, however is left in for an extra layer of safety)
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-        if openingHours[index]['closed'] == False:
-            hoursString = html.unescape(openingHours[index]['hours'])
-            while len(hoursString) > 11: #incase there are multiple time slots encoded within the string (format is unknown hence the strange code)
-                timeSlot = { 'open' : hoursString[:5],
-                                'close' : hoursString[8:13]}
-                actualHours.append(timeSlot)
-                hoursString = hoursString[13:]
-                if len(hoursString) > 0:
-                    try:
-                        firstDigitIndex = [x.isdigit() for x in hoursString].index(True)
-                        hoursString = hoursString[firstDigitIndex:]
-                    except:
-                        break
-            keyHours = {'day' : dayKeys[key],
-                'open' : True,
-                'hours' : actualHours
-                }
+            day = intermediaryDayKeys[openingHours[index]["day"]]
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if day not in dayDoneSet:
+                dayDoneSet.add(day)
+                #keyHours processing code
+                key = intermediaryDayKeys[openingHours[index]['day']]  #turn key into int
+                actualHours = []
+                if openingHours[index]['closed'] == False:
+                    hoursString = html.unescape(openingHours[index]['hours'])
+                    while len(hoursString) > 11: #incase there are multiple time slots encoded within the string (format is unknown hence the strange code)
+                        timeSlot = { 'open' : hoursString[:5],
+                                        'close' : hoursString[8:13]}
+                        actualHours.append(timeSlot)
+                        hoursString = hoursString[13:]
+                        if len(hoursString) > 0:
+                            try:
+                                firstDigitIndex = [x.isdigit() for x in hoursString].index(True)
+                                hoursString = hoursString[firstDigitIndex:]
+                            except:
+                                break
+                    keyHours = {'day' : dayKeys[key],
+                        'open' : True,
+                        'hours' : actualHours
+                        }
+                else:
+                    keyHours = {'day' : dayKeys[key],
+                        'open' : False
+                        }
+                heapq.heappush(daysHeap, [key, keyHours])
+    #Check for any missing days and ensure all days are in order for insertion into our database
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
         else:
-            keyHours = {'day' : dayKeys[key],
-                'open' : False
-                }
-        
-        hoursArray.append(keyHours)
-    while len(hoursArray) < 7:
-            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
+        return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
 
 def get_coop_data(lat, lng):
@@ -661,44 +719,57 @@ def get_coop_data(lat, lng):
     openingHours = res[i]["opening_hours"]
     intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
-    hoursArray = []
-    for index in range(len(openingHours)):#
-        key = intermediaryDayKeys[openingHours[index]['name']]  #turn key into int
-        actualHours = []
-        while len(hoursArray) < key:
-            #Incase store is closed on a day of the week and therefore not included in the list 
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-        try:
-            if openingHours[index]["label"].find("los") != -1:
-                #incase the world closed/closure/Closed/Closure is in the label
-                closedDayHours = {  'day' : dayKeys[key],
-                            'open' : False  }
-                hoursArray.append(closedDayHours)
-            else:
-                actualHoursDict = {}
-                actualHoursDict['open'] = openingHours[index]['opens']
-                actualHoursDict['close'] = openingHours[index]['closes']
-                actualHours = [actualHoursDict]
-                keyHours = {'day' : dayKeys[key],
-                    'open' : True,
-                    'hours' : actualHours
-                    }
-                hoursArray.append(keyHours)
-        except:
-            #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
-            closedDayHours = {  'day' : dayKeys[key],
-                            'open' : False  }
-            hoursArray.append(closedDayHours)
-    while len(hoursArray) < 7:
-            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
-    if len(hoursArray) > 7:
+    dayDoneSet = set()
+    daysHeap = []
+    for index in range(len(openingHours)):
+            key = intermediaryDayKeys[openingHours[index]['name']]  #turn key into int
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if key not in dayDoneSet:
+                dayDoneSet.add(key)
+                #keyHours processing code
+                actualHours = []
+                try:
+                    if openingHours[index]["label"].find("los") != -1:
+                        #incase the world closed/closure/Closed/Closure is in the label
+                        closedDayHours = {  'day' : dayKeys[key],
+                                    'open' : False  }
+                        heapq.heappush(daysHeap, [key, closedDayHours])
+                    else:
+                        actualHoursDict = {}
+                        actualHoursDict['open'] = openingHours[index]['opens']
+                        actualHoursDict['close'] = openingHours[index]['closes']
+                        actualHours = [actualHoursDict]
+                        keyHours = {'day' : dayKeys[key],
+                            'open' : True,
+                            'hours' : actualHours
+                            }
+                        heapq.heappush(daysHeap, [key, keyHours])
+                except:
+                    #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+                    closedDayHours = {  'day' : dayKeys[key],
+                                    'open' : False  }
+                    heapq.heappush(daysHeap, [key, closedDayHours])
+    # Check for any missing days and ensure all days are in order for insertion into our database
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
+        else:
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
         return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
 
 def get_marks_and_spencers_data(lat, lng):
@@ -731,38 +802,50 @@ def get_marks_and_spencers_data(lat, lng):
     openingHours = res[i]["coreOpeningHours"]
     intermediaryDayKeys = { 'Monday' : 0, 'Tuesday' : 1, 'Wednesday' : 2, 'Thursday' : 3, 'Friday' : 4, 'Saturday' : 5, 'Sunday' : 6}
     dayKeys = { 0 : 'Monday', 1 : 'Tuesday', 2 : 'Wednesday', 3 : 'Thursday', 4 : 'Friday', 5 : 'Saturday', 6 : 'Sunday'}
-    hoursArray = []
+    dayDoneSet = set()
+    daysHeap = []
     for index in range(len(openingHours)):
-        key = intermediaryDayKeys[openingHours[index]['day']]  #turn key into int
-        actualHours = []
-        while len(hoursArray) < key:
-            #Incase store is closed on a day of the week and therefore not included in the list 
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-        try:
-            actualHoursDict = {}
-            actualHoursDict['open'] = openingHours[index]['open']
-            actualHoursDict['close'] = openingHours[index]['close']
-            actualHours = [actualHoursDict]
-            keyHours = {'day' : dayKeys[key],
-                'open' : True,
-                'hours' : actualHours
-                }
-            hoursArray.append(keyHours)
-        except:
-            #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
-            closedDayHours = {  'day' : dayKeys[key],
-                            'open' : False  }
-            hoursArray.append(closedDayHours)
-    while len(hoursArray) < 7:
-            #Incase store is closed on a day of the week (at the end of the list/week) and therefore not included in the list
-            closedDayHours = {  'day' : dayKeys[len(hoursArray)],
-                                'open' : False  }
-            hoursArray.append(closedDayHours)
-    #Incase indexes were muddled in the response (difficult to deal with due to desired output format of the days being an ordered array not a key'ed dictionary)
-    if len(hoursArray) > 7:
+            key = intermediaryDayKeys[openingHours[index]['day']]  #turn key into int
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if key not in dayDoneSet:
+                dayDoneSet.add(key)
+            #keyHours processing code
+                try:
+                    actualHoursDict = {}
+                    actualHoursDict['open'] = openingHours[index]['open']
+                    actualHoursDict['close'] = openingHours[index]['close']
+                    actualHours = [actualHoursDict]
+                    keyHours = {'day' : dayKeys[key],
+                        'open' : True,
+                        'hours' : actualHours
+                        }
+                    heapq.heappush(daysHeap, [key,keyHours])
+                except:
+                    #If dictionary keys start_time or end_time dont exist, assume store is closed on that day
+                    closedDayHours = {  'day' : dayKeys[key],
+                                    'open' : False  }
+                    heapq.heappush(daysHeap, [key,closedDayHours])
+    # Check for any missing days and ensure all days are in order for insertion into our database
+    checkedUpToDay = -1
+    for day in heapq.nsmallest(7, daysHeap):
+        checkedUpToDay += 1
+        while day[0] > checkedUpToDay:
+            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            checkedUpToDay += 1
+    while len(daysHeap) < 7:
+        if len(daysHeap) > 0:
+            checkedUpToDay = daysHeap[-1][0] + 1
+        else:
+            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+            checkedUpToDay = 0
+        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+                    'open' : False  }
+        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    if len(daysHeap) != 7:
         return False
+    hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
 
 def get_iceland_data(lat, lng):
@@ -892,6 +975,9 @@ def get_edeka_data(lat, lng):
     return hoursArray
 
 
+
+#Print statements to test opening hours retrieval functions.
+
 # print(get_sainsburys_data(lat,lng))
 # print(get_asda_data(lat,lng))
 # print(get_tesco_data(lat,lng))
@@ -906,9 +992,45 @@ def get_edeka_data(lat, lng):
 
 
 
+# # Copyable Heap structure code:
+
+# dayDoneSet = set()
+# daysHeap = []
+# for dayObject in openingHours:
+#         day = intermediaryDayKeys[dayObject["day"]]
+#         #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+#         if day not in dayDoneSet:
+#             dayDoneSet.add(day)
+#             #keyHours processing code
+#             #INSERT HOUR PROCESSING CODE HERE
+    
+#             heapq.heappush(daysHeap, [day,keyHours]) #(REPLACE hoursArray.append(keyHours) with this statement)
+# #Check for any missing days and ensure all days are in order for insertion into our database
+# checkedUpToDay = -1
+# for day in heapq.nsmallest(7, daysHeap):
+#     checkedUpToDay += 1
+#     while day[0] > checkedUpToDay:
+#         closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+#                 'open' : False  }
+#         heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+#         checkedUpToDay += 1
+# while len(daysHeap) < 7:
+#     if len(daysHeap) > 0:
+#         checkedUpToDay = daysHeap[-1][0] + 1
+#     else:
+#         # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
+#         checkedUpToDay = 0
+#     closedDayHours = {  'day' : dayKeys[checkedUpToDay],
+#                 'open' : False  }
+#     heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+# if len(daysHeap) != 7:
+#     return False
+# hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+# return hoursArray
 
 
 
+# Desired format for opening hours array
 
 # [
 #         {
