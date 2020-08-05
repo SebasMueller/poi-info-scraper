@@ -1205,7 +1205,122 @@ def get_edeka_data(lat, lng):
         hoursArray.append(keyHours)
     return hoursArray
 
+def set_up_kaufland_database():
+    API_URL = "https://www.kaufland.de/.klstorefinder.json"
+    kauflandArray = []
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+        None: None,
+    }
+    try:
+        rq = requests.get(API_URL)
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
 
+    for index in range(len(res)):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res[index]["wod"]
+        dayCounter = 0
+        for dayIndex in range(len(openingHours)):
+            day = dayIndex
+            
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if dayIndex not in dayDoneSet:
+                try:
+                    dayDoneSet.add(
+                        intermediaryDayKeys[openingHours[dayIndex].split("|")[0]]
+                    )
+                    # keyHours processing code
+                    opens = openingHours[dayIndex].split("|")[1]
+                    closes = openingHours[dayIndex].split("|")[2]
+                    if opens == closes:
+                        closedDayHours = {
+                            "day": openingHours[dayIndex].split("|")[0],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                    actualHours = {"open": opens, "close": closes}
+                    keyHours = {
+                        "day": openingHours[dayIndex].split("|")[0],
+                        "open": True,
+                        "hours": [actualHours],
+                    }
+                    heapq.heappush(daysHeap, [day, keyHours])
+
+                except:
+                    closedDayHours = {
+                        "day": openingHours[dayIndex].split("|")[0],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res[index]["lat"]
+        longitude = res[index]["lng"]
+        kauflandArray.append([(float(latitude), float(longitude)), hoursArray])
+    kauflandDB = pd.DataFrame(kauflandArray, columns=["Coordinates", "OpeningHours"])
+    kauflandDB.to_csv("Kaufland.csv")
+    return True
+
+def get_kaufland_data(lat, lng):
+    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list):
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    desiredCoords = [lat, lng]
+    kauflandDB = pd.read_csv(
+        "Kaufland.csv",
+        index_col="Unnamed: 0",
+        converters={"Coordinates": eval, "OpeningHours": eval},
+    )
+    kauflandDB["Distances"] = haversine_vector(
+        [desiredCoords] * len(kauflandDB["Coordinates"]),
+        list(kauflandDB["Coordinates"]),
+    )
+    closestStoreIndex = kauflandDB["Distances"].idxmin()
+    if returnDistanceToo:
+        return (
+            kauflandDB["Distances"][closestStoreIndex],
+            kauflandDB["OpeningHours"][closestStoreIndex],
+        )
+    else:
+        return kauflandDB["OpeningHours"][closestStoreIndex]
 
 #Print statements to test setting up of local database opening hours functions.
 
@@ -1230,6 +1345,7 @@ print(get_edeka_data(lat,lng))
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
 # print(get_iceland_data(lat,lng))
+# print(get_kaufland_data(lat,lng))
 
 
 # # Copyable Heap structure code:
