@@ -1265,7 +1265,6 @@ def set_up_kaufland_database():
                         "hours": [actualHours],
                     }
                     heapq.heappush(daysHeap, [day, keyHours])
-
                 except:
                     closedDayHours = {
                         "day": openingHours[dayIndex].split("|")[0],
@@ -1322,10 +1321,175 @@ def get_kaufland_data(lat, lng):
     else:
         return kauflandDB["OpeningHours"][closestStoreIndex]
 
+def set_up_migros_database():
+
+    API_URL = "https://web-api.migros.ch/widgets/stores"
+
+    headers = {
+        "Accept-Language": "de",
+        "Origin": "https://filialen.migros.ch",
+    }
+
+    params = (
+        ("key", "loh7Diephiengaiv"),
+        ("filters[markets][0][0]", "super"),
+        ("filters[markets][0][2]", "voi"),
+        ("filters[markets][0][3]", "mp"),
+        ("limit", "737"),
+    )
+
+    try:
+        rq = requests.get(API_URL, headers=headers, params=params)
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
+
+    migrosArray = []
+
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+        None: None,
+    }
+
+    for index in range(len(res["stores"])):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res["stores"][index]["markets"][0]["opening_hours"][0][
+            "opening_hours"
+        ]
+        dayCounter = 0
+        for dayIndex in range(len(openingHours)):
+            if dayIndex not in dayDoneSet:
+                try:
+                    day = openingHours[dayIndex]["day_of_week"] - 1
+                    dayDoneSet.add(day)
+
+                    # keyHours processing code
+                    # changes done because some stores opens two times a day.
+                    opens_firstHalf = openingHours[dayIndex]["time_open1"]
+                    closes_firstHalf = openingHours[dayIndex]["time_close1"]
+                    opens_secondHalf = openingHours[dayIndex]["time_open2"]
+                    closes_secondHalf = openingHours[dayIndex]["time_close2"]
+                    if (
+                        opens_firstHalf
+                        == closes_firstHalf
+                        == opens_secondHalf
+                        == closes_secondHalf
+                    ):
+                        closedDayHours = {
+                            "day": dayKeys[day],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                    else:
+                        if opens_secondHalf == closes_secondHalf:
+                            actualHours = {
+                                "open": opens_firstHalf,
+                                "close": closes_firstHalf,
+                            }
+                            keyHours = {
+                                "day": dayKeys[day],
+                                "open": True,
+                                "hours": [actualHours],
+                            }
+                            heapq.heappush(daysHeap, [day, keyHours])
+                        else:
+                            actualHours_firstHalf = {
+                                "open": opens_firstHalf,
+                                "close": closes_firstHalf,
+                            }
+                            actualHours_secondHalf = {
+                                "open": opens_secondHalf,
+                                "close": closes_secondHalf,
+                            }
+                            keyHours = {
+                                "day": dayKeys[day],
+                                "open": True,
+                                "hours": [
+                                    actualHours_firstHalf,
+                                    actualHours_secondHalf,
+                                ],
+                            }
+                            heapq.heappush(daysHeap, [day, keyHours])
+
+                except:
+                    closedDayHours = {
+                        "day": dayKeys[day],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res["stores"][index]["location"]["geo"]["lat"]
+        longitude = res["stores"][index]["location"]["geo"]["lon"]
+        migrosArray.append([(float(latitude), float(longitude)), hoursArray])
+    migrosDB = pd.DataFrame(migrosArray, columns=["Coordinates", "OpeningHours"])
+    migrosDB.to_csv("Migros.csv")
+    return True
+
+def get_migros_data(lat, lng):
+    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list):
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    desiredCoords = [lat, lng]
+    migrosDB = pd.read_csv(
+        "Migros.csv",
+        index_col="Unnamed: 0",
+        converters={"Coordinates": eval, "OpeningHours": eval},
+    )
+    migrosDB["Distances"] = haversine_vector(
+        [desiredCoords] * len(migrosDB["Coordinates"]), list(migrosDB["Coordinates"]),
+    )
+    closestStoreIndex = migrosDB["Distances"].idxmin()
+    if returnDistanceToo:
+        return (
+            migrosDB["Distances"][closestStoreIndex],
+            migrosDB["OpeningHours"][closestStoreIndex],
+        )
+    else:
+        return migrosDB["OpeningHours"][closestStoreIndex]
+
 #Print statements to test setting up of local database opening hours functions.
 
 # print(set_up_rewe_database())
 # print(set_up_netto_database())
+# print(set_up_kaufland_database())
+# print(set_up_migros_database())
 
 
 
@@ -1346,6 +1510,7 @@ print(get_edeka_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
 # print(get_iceland_data(lat,lng))
 # print(get_kaufland_data(lat,lng))
+# print(get_migros_data(lat, lng))
 
 
 # # Copyable Heap structure code:
