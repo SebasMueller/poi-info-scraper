@@ -1265,7 +1265,6 @@ def set_up_kaufland_database():
                         "hours": [actualHours],
                     }
                     heapq.heappush(daysHeap, [day, keyHours])
-
                 except:
                     closedDayHours = {
                         "day": openingHours[dayIndex].split("|")[0],
