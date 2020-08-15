@@ -1554,8 +1554,8 @@ def get_carrefour_data(lat, lng):
                 try:
                     dayDoneSet.add(dayDone)
                     # keyHours processing code
-                    opens = openingHours[dayIndex]["openTime"]
-                    closes = openingHours[dayIndex]["closeTime"]
+                    opens = datetime.strptime(openingHours[dayIndex]["openTime"], "%H%M").strftime("%H:%M")
+                    closes = datetime.strptime(openingHours[dayIndex]["closeTime"], "%H%M").strftime("%H:%M")
                     if opens == closes:
                         closedDayHours = {
                             "day": dayKeys[dayDone],
