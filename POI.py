@@ -1745,6 +1745,151 @@ def get_mercadona_data(lat, lng):
     else:
         return mercadonaDB["OpeningHours"][closestStoreIndex]
 
+def get_coles_data(lat, lng):
+    API_URL = "https://apigw.coles.com.au/digital/colesweb/v1/stores/search"
+    params = (
+        ("latitude", "{}".format(lat)),
+        ("longitude", "{}".format(lng)),
+        ("brandIds", "2,1"),
+        ("numberOfStores", "{}".format(limit)),
+    )
+    rq = requests.get(API_URL, params=params)
+    if rq.status_code != 200:
+        print(rq.json())
+        return False
+    try:
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
+    i = 0
+    # INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!! (e.g. res[0]["name"])
+    # e.g.:
+    # while True:
+    #     if name != res[i]["name"]:
+    #         i += 1
+    #     else:
+    #         break
+    storeLat, storeLng = (
+        float(res["stores"][0]["latitude"]),
+        float(res["stores"][0]["longitude"]),
+    )
+    # compute distance between the two points using the haversine function
+    storeDistance = haversine((lat, lng), (storeLat, storeLng), unit="m")
+    if storeDistance > radius:
+        return False
+    openingHours = res["stores"][i]["tradingHours"]
+    colesArray = []
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Mon": 0,
+        "Tue": 1,
+        "Wed": 2,
+        "Thu": 3,
+        "Fri": 4,
+        "Sat": 5,
+        "Sun": 6,
+        None: None,
+    }
+    for index in range(len(res["stores"])):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res["stores"][index]["tradingHours"]
+        daysArray = []
+        if len(openingHours) == 1:
+            daysArray = [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0]]
+        else:
+            dayIndex = 0
+            for val in range(len(openingHours)):
+                day = openingHours[val]["daysOfWeek"].split("-")
+                if len(day) < 2:
+                    dayFirst = day[0]
+                    dayLast = day[0]
+                else:
+                    dayFirst = day[0]
+                    dayLast = day[1]
+                for dayVal in range(
+                    intermediaryDayKeys[dayFirst], intermediaryDayKeys[dayLast] + 1
+                ):
+                    daysArray.append([dayVal, dayIndex])
+                dayIndex += 1
+
+        dayCounter = 0
+        for dayIndex in range(len(daysArray)):
+            day = dayIndex
+
+            dayDone = daysArray[dayIndex][0]
+            # if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if dayDone not in dayDoneSet:
+                try:
+                    dayDoneSet.add(dayDone)
+                    # keyHours processing code
+                    timeValue = openingHours[daysArray[dayIndex][1]]["storeTime"].split(
+                        "-"
+                    )
+                    if len(timeValue) < 2:
+                        opens = timeValue[0]
+                        closes = "null"
+                    else:
+                        if ":" in timeValue[0] and ":" not in timeValue[1]:
+                            opens = datetime.strftime(datetime.strptime(timeValue[0], "%I:%M%p"), "%H:%M")
+                            closes = datetime.strftime(datetime.strptime(timeValue[1], "%I%p"), "%H:%M")
+                        elif ":" in timeValue[1] and ":" not in timeValue[0]:
+                            opens = datetime.strftime(datetime.strptime(timeValue[0], "%I%p"), "%H:%M")
+                            closes = datetime.strftime(datetime.strptime(timeValue[1], "%I:%M%p"), "%H:%M")
+                        elif ":" in timeValue[0] and ":" in timeValue[1]:
+                            opens = datetime.strftime(datetime.strptime(timeValue[0], "%I:%M%p"), "%H:%M")
+                            closes = datetime.strftime(datetime.strptime(timeValue[1], "%I:%M%p"), "%H:%M")
+                        else:
+                            opens = datetime.strftime(datetime.strptime(timeValue[0], "%I%p"), "%H:%M")
+                            closes = datetime.strftime(datetime.strptime(timeValue[1], "%I%p"), "%H:%M")
+                    if opens == closes:
+                        closedDayHours = {
+                            "day": dayKeys[dayDone],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                    actualHours = {"open": opens, "close": closes}
+                    keyHours = {
+                        "day": dayKeys[dayDone],
+                        "open": True,
+                        "hours": [actualHours],
+                    }
+                    heapq.heappush(daysHeap, [day, keyHours])
+
+                except:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res["stores"][index]["latitude"]
+        longitude = res["stores"][index]["longitude"]
+        colesArray.append([(float(latitude), float(longitude)), hoursArray])
+    return colesArray
 
 #Print statements to test setting up of local database opening hours functions.
 
@@ -1775,6 +1920,7 @@ print(get_edeka_data(lat,lng))
 # print(get_migros_data(lat, lng))
 # print(get_carrefour_data(lat, lng))
 # print(get_mercadona_data(lat, lng))
+# print(get_coles_data(lat, lng))
 
 # # Copyable Heap structure code:
 
