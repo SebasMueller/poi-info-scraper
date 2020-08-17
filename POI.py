@@ -7,12 +7,26 @@ from haversine import haversine, haversine_vector
 import heapq
 import pandas as pd
 from dateutil import parser
+import pytz
+from datetime import datetime
 limit = 1
-radius = 6
+radius = 6 #in km
 # lat = 52.635875 #uk - norfolk
 # lng = 1.301 #uk - norfolk
-lat = 52.50003299 #germany - berlin
-lng = 13.3913285 #germany - berlin
+# lat = 52.50003299 #germany - berlin
+# lng = 13.3913285 #germany - berlin
+# lat = 45.455390 #milan
+# lng = 9.403006
+# lat = 48.805439 #paris
+# lng = 2.311690
+# lat = 36.283993 # spain
+# lng = -6.08953
+# lat = 51.012676 #belgium
+# lng = 4.114648
+lat = -33.821880 #sydney - australia
+lng = 150.790379 
+
+#Section for functions to set up local databases:
 
 def set_up_rewe_database():
     API_URL = "https://www.rewe.de/market/content/marketsearch"
@@ -170,13 +184,363 @@ def set_up_netto_database():
     nettoDB.to_csv("Netto.csv")
     return True
 
+def set_up_mercadona_database():
+    API_URL = "https://www.mercadona.com/estaticos/cargas/data.js"
+    mercadonaArray = []
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+        None: None,
+    }
+    try:
+        rq = requests.get(API_URL)
+        obj = rq.text[rq.text.find("{") : -5] + "]}"
+        res = json.loads(obj)
 
+        if len(res) == 0:
+            return False
+    except:
+        return False
+
+    for index in range(len(res["tiendasFull"])):
+        dayDoneSet = set()
+        daysHeap = []
+        daysArray = []
+        closingDayArray = res["tiendasFull"][index]["fi"].split("#")
+        openingDayArray = res["tiendasFull"][index]["in"].split("#")
+
+        # finding current day in Spain(madrid)
+        timeZoneEurope = pytz.timezone("Europe/Madrid")
+        datetimeEurope = datetime.now(timeZoneEurope)
+        currentday = datetimeEurope.strftime("%A")
+        dayCounter = intermediaryDayKeys[currentday]
+
+        # implemented because time string returned accordni to the current day in Spain(eg : "##C#C###")
+        for val in range(7):
+            daysArray.append(dayCounter)
+            dayCounter += 1
+            if dayCounter == 7:
+                dayCounter = 0
+
+        openingHours = daysArray
+
+        for dayIndex in range(len(openingHours)):
+            day = daysArray[dayIndex]
+
+            # if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if day not in dayDoneSet:
+                try:
+                    dayDoneSet.add(day)
+                    # keyHours processing code
+                    opens = openingDayArray[dayIndex]
+                    closes = closingDayArray[dayIndex]
+                    if opens == closes != "":
+                        closedDayHours = {
+                            "day": dayKeys[daysArray[dayIndex]],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [dayIndex, closedDayHours])
+                    else:
+                        if opens == closes == "":
+                            opens = "09:00"
+                            closes = "21:30"
+                        elif opens == "" and closes != "":
+                            opens = "09:00"
+                            closes = datetime.strptime(closes, "%H%M").strftime("%H:%M")
+                        elif opens != "" and closes == "":
+                            closes = "21:30"
+                            opens = datetime.strptime(opens, "%H%M").strftime("%H:%M")
+                        else:
+                            opens = datetime.strptime(opens, "%H%M").strftime("%H:%M")
+                            closes = datetime.strptime(closes, "%H%M").strftime("%H:%M")
+                        actualHours = {"open": opens, "close": closes}
+                        keyHours = {
+                            "day": dayKeys[daysArray[dayIndex]],
+                            "open": True,
+                            "hours": [actualHours],
+                        }
+                        heapq.heappush(daysHeap, [dayIndex, keyHours])
+
+                except:
+                    closedDayHours = {
+                        "day": dayKeys[daysArray[dayIndex]],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayIndex, closedDayHours])
+
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[daysArray[dayIndex]],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res["tiendasFull"][index]["lt"]
+        longitude = res["tiendasFull"][index]["lg"]
+        mercadonaArray.append([(float(latitude), float(longitude)), hoursArray])
+    mercadonaDB = pd.DataFrame(mercadonaArray, columns=["Coordinates", "OpeningHours"])
+    mercadonaDB.to_csv("Mercadona.csv")
+    return True
+
+def set_up_migros_database():
+
+    API_URL = "https://web-api.migros.ch/widgets/stores"
+
+    headers = {
+        "Accept-Language": "de",
+        "Origin": "https://filialen.migros.ch",
+    }
+
+    params = (
+        ("key", "loh7Diephiengaiv"),
+        ("filters[markets][0][0]", "super"),
+        ("filters[markets][0][2]", "voi"),
+        ("filters[markets][0][3]", "mp"),
+        ("limit", "737"),
+    )
+
+    try:
+        rq = requests.get(API_URL, headers=headers, params=params)
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
+
+    migrosArray = []
+
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+        None: None,
+    }
+
+    for index in range(len(res["stores"])):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res["stores"][index]["markets"][0]["opening_hours"][0][
+            "opening_hours"
+        ]
+        dayCounter = 0
+        for dayIndex in range(len(openingHours)):
+            if dayIndex not in dayDoneSet:
+                try:
+                    day = openingHours[dayIndex]["day_of_week"] - 1
+                    dayDoneSet.add(day)
+
+                    # keyHours processing code
+                    # changes done because some stores opens two times a day.
+                    opens_firstHalf = openingHours[dayIndex]["time_open1"]
+                    closes_firstHalf = openingHours[dayIndex]["time_close1"]
+                    opens_secondHalf = openingHours[dayIndex]["time_open2"]
+                    closes_secondHalf = openingHours[dayIndex]["time_close2"]
+                    if (
+                        opens_firstHalf
+                        == closes_firstHalf
+                        == opens_secondHalf
+                        == closes_secondHalf
+                    ):
+                        closedDayHours = {
+                            "day": dayKeys[day],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                    else:
+                        if opens_secondHalf == closes_secondHalf:
+                            actualHours = {
+                                "open": opens_firstHalf,
+                                "close": closes_firstHalf,
+                            }
+                            keyHours = {
+                                "day": dayKeys[day],
+                                "open": True,
+                                "hours": [actualHours],
+                            }
+                            heapq.heappush(daysHeap, [day, keyHours])
+                        else:
+                            actualHours_firstHalf = {
+                                "open": opens_firstHalf,
+                                "close": closes_firstHalf,
+                            }
+                            actualHours_secondHalf = {
+                                "open": opens_secondHalf,
+                                "close": closes_secondHalf,
+                            }
+                            keyHours = {
+                                "day": dayKeys[day],
+                                "open": True,
+                                "hours": [
+                                    actualHours_firstHalf,
+                                    actualHours_secondHalf,
+                                ],
+                            }
+                            heapq.heappush(daysHeap, [day, keyHours])
+
+                except:
+                    closedDayHours = {
+                        "day": dayKeys[day],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res["stores"][index]["location"]["geo"]["lat"]
+        longitude = res["stores"][index]["location"]["geo"]["lon"]
+        migrosArray.append([(float(latitude), float(longitude)), hoursArray])
+    migrosDB = pd.DataFrame(migrosArray, columns=["Coordinates", "OpeningHours"])
+    migrosDB.to_csv("Migros.csv")
+    return True
+
+def set_up_kaufland_database():
+    API_URL = "https://www.kaufland.de/.klstorefinder.json"
+    kauflandArray = []
+    dayKeys = {
+        0: "Monday",
+        1: "Tuesday",
+        2: "Wednesday",
+        3: "Thursday",
+        4: "Friday",
+        5: "Saturday",
+        6: "Sunday",
+    }
+    intermediaryDayKeys = {
+        "Monday": 0,
+        "Tuesday": 1,
+        "Wednesday": 2,
+        "Thursday": 3,
+        "Friday": 4,
+        "Saturday": 5,
+        "Sunday": 6,
+        None: None,
+    }
+    try:
+        rq = requests.get(API_URL)
+        res = rq.json()
+        if len(res) == 0:
+            return False
+    except:
+        return False
+
+    for index in range(len(res)):
+        dayDoneSet = set()
+        daysHeap = []
+        openingHours = res[index]["wod"]
+        dayCounter = 0
+        for dayIndex in range(len(openingHours)):
+            day = dayIndex
+            
+            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
+            if dayIndex not in dayDoneSet:
+                try:
+                    dayDoneSet.add(
+                        intermediaryDayKeys[openingHours[dayIndex].split("|")[0]]
+                    )
+                    # keyHours processing code
+                    opens = openingHours[dayIndex].split("|")[1]
+                    closes = openingHours[dayIndex].split("|")[2]
+                    if opens == closes:
+                        closedDayHours = {
+                            "day": openingHours[dayIndex].split("|")[0],
+                            "open": False,
+                        }
+                        heapq.heappush(daysHeap, [day, closedDayHours])
+                    actualHours = {"open": opens, "close": closes}
+                    keyHours = {
+                        "day": openingHours[dayIndex].split("|")[0],
+                        "open": True,
+                        "hours": [actualHours],
+                    }
+                    heapq.heappush(daysHeap, [day, keyHours])
+                except:
+                    closedDayHours = {
+                        "day": openingHours[dayIndex].split("|")[0],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [day, closedDayHours])
+
+        # Check for any missing days and ensure all days are in order for insertion into our database
+        for day in daysHeap:
+            if day[1]["day"] != dayKeys[day[0]]:
+                day[0] = intermediaryDayKeys[day[1]["day"]]
+
+        if len(daysHeap) < 7:
+            for dayDone in dayKeys.keys():
+                if dayDone not in dayDoneSet:
+                    closedDayHours = {
+                        "day": dayKeys[dayDone],
+                        "open": False,
+                    }
+                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
+
+        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
+        latitude = res[index]["lat"]
+        longitude = res[index]["lng"]
+        kauflandArray.append([(float(latitude), float(longitude)), hoursArray])
+    kauflandDB = pd.DataFrame(kauflandArray, columns=["Coordinates", "OpeningHours"])
+    kauflandDB.to_csv("Kaufland.csv")
+    return True
+
+
+
+#Section for functions to call our local databases:
 
 def get_rewe_data(lat, lng):
     desiredCoords = [lat, lng]
     reweDB = pd.read_csv("REWE.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
     reweDB["Distances"] = haversine_vector([desiredCoords]*len(reweDB["Coordinates"]), list(reweDB["Coordinates"]))
     closestStoreIndex = reweDB["Distances"].idxmin()
+    if reweDB["Distances"][closestStoreIndex] > radius:
+        return False
     return reweDB["OpeningHours"][closestStoreIndex]
 
 def get_netto_data(lat, lng):
@@ -191,11 +555,114 @@ def get_netto_data(lat, lng):
     nettoDB = pd.read_csv("Netto.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
     nettoDB["Distances"] = haversine_vector([desiredCoords]*len(nettoDB["Coordinates"]), list(nettoDB["Coordinates"]))
     closestStoreIndex = nettoDB["Distances"].idxmin()
+    if nettoDB["Distances"][closestStoreIndex] > radius:
+        return False
     if returnDistanceToo:
         return nettoDB["Distances"][closestStoreIndex], nettoDB["OpeningHours"][closestStoreIndex]
     else:
         return nettoDB["OpeningHours"][closestStoreIndex]
     
+def get_netto_brands_data(lat, lng):
+    netto = get_netto_data([lat], [lng])
+    nettoMD = get_netto_marken_discount_data([lat], [lng])
+    if netto[0] < nettoMD[0]:
+        if netto[1] > radius:
+            return False
+        return netto[1]
+    else:
+        if netto[0] > radius:
+            return False
+        return nettoMD[1]
+
+def get_mercadona_data(lat, lng):
+    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list):
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    desiredCoords = [lat, lng]
+    mercadonaDB = pd.read_csv(
+        "Mercadona.csv",
+        index_col="Unnamed: 0",
+        converters={"Coordinates": eval, "OpeningHours": eval},
+    )
+    mercadonaDB["Distances"] = haversine_vector(
+        [desiredCoords] * len(mercadonaDB["Coordinates"]),
+        list(mercadonaDB["Coordinates"]),
+    )
+    closestStoreIndex = mercadonaDB["Distances"].idxmin()
+    if mercadonaDB["Distances"][closestStoreIndex] > radius:
+        return False
+    if returnDistanceToo:
+        return (
+            mercadonaDB["Distances"][closestStoreIndex],
+            mercadonaDB["OpeningHours"][closestStoreIndex],
+        )
+    else:
+        return mercadonaDB["OpeningHours"][closestStoreIndex]
+
+def get_migros_data(lat, lng):
+    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list):
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    desiredCoords = [lat, lng]
+    migrosDB = pd.read_csv(
+        "Migros.csv",
+        index_col="Unnamed: 0",
+        converters={"Coordinates": eval, "OpeningHours": eval},
+    )
+    migrosDB["Distances"] = haversine_vector(
+        [desiredCoords] * len(migrosDB["Coordinates"]), list(migrosDB["Coordinates"]),
+    )
+    closestStoreIndex = migrosDB["Distances"].idxmin()
+    if migrosDB["Distances"][closestStoreIndex] > radius:
+        return False
+    if returnDistanceToo:
+        return (
+            migrosDB["Distances"][closestStoreIndex],
+            migrosDB["OpeningHours"][closestStoreIndex],
+        )
+    else:
+        return migrosDB["OpeningHours"][closestStoreIndex]
+
+def get_kaufland_data(lat, lng):
+    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
+    if isinstance(lat, list):
+        returnDistanceToo = True
+        lat = lat[0]
+        lng = lng[0]
+    else:
+        returnDistanceToo = False
+    desiredCoords = [lat, lng]
+    kauflandDB = pd.read_csv(
+        "Kaufland.csv",
+        index_col="Unnamed: 0",
+        converters={"Coordinates": eval, "OpeningHours": eval},
+    )
+    kauflandDB["Distances"] = haversine_vector(
+        [desiredCoords] * len(kauflandDB["Coordinates"]),
+        list(kauflandDB["Coordinates"]),
+    )
+    closestStoreIndex = kauflandDB["Distances"].idxmin()
+    if kauflandDB["Distances"][closestStoreIndex] > radius:
+        return False
+    if returnDistanceToo:
+        return (
+            kauflandDB["Distances"][closestStoreIndex],
+            kauflandDB["OpeningHours"][closestStoreIndex],
+        )
+    else:
+        return kauflandDB["OpeningHours"][closestStoreIndex]
+
+
+#Section for functions to call external API's (all ones that dont require us to have set up an internal DB):
+
 def get_netto_marken_discount_data(lat, lng):
     #pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
     if isinstance(lat, list) :
@@ -228,6 +695,7 @@ def get_netto_marken_discount_data(lat, lng):
         storeDistance = haversine((lat, lng),(storeLat, storeLng))
         heapq.heappush(storeHeap, [storeDistance,res[index]])
     res = heapq.nsmallest(limit, storeHeap)
+
     i = 0
     #INSERT POTENTIAL CHECK THAT STORE MATCHES DESIRED STORENAME!!
     #e.g.:
@@ -330,15 +798,9 @@ def get_netto_marken_discount_data(lat, lng):
     if returnDistanceToo:
         return storeDistance, hoursArray
     else:
+        if storeDistance > radius:
+            return False
         return hoursArray
-
-def get_netto_brands_data(lat, lng):
-    netto = get_netto_data([lat], [lng])
-    nettoMD = get_netto_marken_discount_data([lat], [lng])
-    if netto[0] < nettoMD[0]:
-        return netto[1]
-    else:
-        return nettoMD[1]
 
 def get_sainsburys_data(lat,lng):
     API_URL = "https://stores.sainsburys.co.uk/api/v1/stores/"
@@ -690,7 +1152,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Monday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Monday",
@@ -714,7 +1176,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Tuesday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Tuesday",
@@ -736,7 +1198,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Wednesday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Wednesday",
@@ -759,7 +1221,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Thursday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Thursday",
@@ -781,7 +1243,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Friday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Friday",
@@ -803,7 +1265,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Saturday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Saturday",
@@ -825,7 +1287,7 @@ def get_waitrose_data(lat, lng):
                             'close' : day[firstDigitIndex+6:firstDigitIndex+11]}
             keyHours = {'day' : "Sunday",
                         'open' : True,
-                        'hours' : actualHours}
+                        'hours' : [actualHours]}
             hoursArray.append(keyHours)
         except:
             keyHours = {'day' : "Sunday",
@@ -919,6 +1381,8 @@ def get_aldi_data(lat, lng):
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
     return hoursArray
 
+#WARNING: Coop function might not work from italy?? Or server is currently broken? 10:45 british time 17/08/2020
+
 def get_coop_data(lat, lng):
     API_URL = "https://api.coop.co.uk/locationservices/finder/food/"
     params = {  'location' : "{0},{1}".format(lat,lng),
@@ -928,7 +1392,7 @@ def get_coop_data(lat, lng):
                 'format' : "json"}
     rq = requests.get(API_URL, params=params)
     if rq.status_code != 200:
-        print(rq.json())
+        print(rq.text)
         return False
     try:
         res = rq.json()
@@ -1205,286 +1669,6 @@ def get_edeka_data(lat, lng):
         hoursArray.append(keyHours)
     return hoursArray
 
-def set_up_kaufland_database():
-    API_URL = "https://www.kaufland.de/.klstorefinder.json"
-    kauflandArray = []
-    dayKeys = {
-        0: "Monday",
-        1: "Tuesday",
-        2: "Wednesday",
-        3: "Thursday",
-        4: "Friday",
-        5: "Saturday",
-        6: "Sunday",
-    }
-    intermediaryDayKeys = {
-        "Monday": 0,
-        "Tuesday": 1,
-        "Wednesday": 2,
-        "Thursday": 3,
-        "Friday": 4,
-        "Saturday": 5,
-        "Sunday": 6,
-        None: None,
-    }
-    try:
-        rq = requests.get(API_URL)
-        res = rq.json()
-        if len(res) == 0:
-            return False
-    except:
-        return False
-
-    for index in range(len(res)):
-        dayDoneSet = set()
-        daysHeap = []
-        openingHours = res[index]["wod"]
-        dayCounter = 0
-        for dayIndex in range(len(openingHours)):
-            day = dayIndex
-            
-            #if statement to deal with days being included twice (implemnted due to a bug in rewe system)
-            if dayIndex not in dayDoneSet:
-                try:
-                    dayDoneSet.add(
-                        intermediaryDayKeys[openingHours[dayIndex].split("|")[0]]
-                    )
-                    # keyHours processing code
-                    opens = openingHours[dayIndex].split("|")[1]
-                    closes = openingHours[dayIndex].split("|")[2]
-                    if opens == closes:
-                        closedDayHours = {
-                            "day": openingHours[dayIndex].split("|")[0],
-                            "open": False,
-                        }
-                        heapq.heappush(daysHeap, [day, closedDayHours])
-                    actualHours = {"open": opens, "close": closes}
-                    keyHours = {
-                        "day": openingHours[dayIndex].split("|")[0],
-                        "open": True,
-                        "hours": [actualHours],
-                    }
-                    heapq.heappush(daysHeap, [day, keyHours])
-                except:
-                    closedDayHours = {
-                        "day": openingHours[dayIndex].split("|")[0],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [day, closedDayHours])
-
-        # Check for any missing days and ensure all days are in order for insertion into our database
-        for day in daysHeap:
-            if day[1]["day"] != dayKeys[day[0]]:
-                day[0] = intermediaryDayKeys[day[1]["day"]]
-
-        if len(daysHeap) < 7:
-            for dayDone in dayKeys.keys():
-                if dayDone not in dayDoneSet:
-                    closedDayHours = {
-                        "day": dayKeys[dayDone],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
-
-        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
-        latitude = res[index]["lat"]
-        longitude = res[index]["lng"]
-        kauflandArray.append([(float(latitude), float(longitude)), hoursArray])
-    kauflandDB = pd.DataFrame(kauflandArray, columns=["Coordinates", "OpeningHours"])
-    kauflandDB.to_csv("Kaufland.csv")
-    return True
-
-def get_kaufland_data(lat, lng):
-    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
-    if isinstance(lat, list):
-        returnDistanceToo = True
-        lat = lat[0]
-        lng = lng[0]
-    else:
-        returnDistanceToo = False
-    desiredCoords = [lat, lng]
-    kauflandDB = pd.read_csv(
-        "Kaufland.csv",
-        index_col="Unnamed: 0",
-        converters={"Coordinates": eval, "OpeningHours": eval},
-    )
-    kauflandDB["Distances"] = haversine_vector(
-        [desiredCoords] * len(kauflandDB["Coordinates"]),
-        list(kauflandDB["Coordinates"]),
-    )
-    closestStoreIndex = kauflandDB["Distances"].idxmin()
-    if returnDistanceToo:
-        return (
-            kauflandDB["Distances"][closestStoreIndex],
-            kauflandDB["OpeningHours"][closestStoreIndex],
-        )
-    else:
-        return kauflandDB["OpeningHours"][closestStoreIndex]
-
-def set_up_migros_database():
-
-    API_URL = "https://web-api.migros.ch/widgets/stores"
-
-    headers = {
-        "Accept-Language": "de",
-        "Origin": "https://filialen.migros.ch",
-    }
-
-    params = (
-        ("key", "loh7Diephiengaiv"),
-        ("filters[markets][0][0]", "super"),
-        ("filters[markets][0][2]", "voi"),
-        ("filters[markets][0][3]", "mp"),
-        ("limit", "737"),
-    )
-
-    try:
-        rq = requests.get(API_URL, headers=headers, params=params)
-        res = rq.json()
-        if len(res) == 0:
-            return False
-    except:
-        return False
-
-    migrosArray = []
-
-    dayKeys = {
-        0: "Monday",
-        1: "Tuesday",
-        2: "Wednesday",
-        3: "Thursday",
-        4: "Friday",
-        5: "Saturday",
-        6: "Sunday",
-    }
-    intermediaryDayKeys = {
-        "Monday": 0,
-        "Tuesday": 1,
-        "Wednesday": 2,
-        "Thursday": 3,
-        "Friday": 4,
-        "Saturday": 5,
-        "Sunday": 6,
-        None: None,
-    }
-
-    for index in range(len(res["stores"])):
-        dayDoneSet = set()
-        daysHeap = []
-        openingHours = res["stores"][index]["markets"][0]["opening_hours"][0][
-            "opening_hours"
-        ]
-        dayCounter = 0
-        for dayIndex in range(len(openingHours)):
-            if dayIndex not in dayDoneSet:
-                try:
-                    day = openingHours[dayIndex]["day_of_week"] - 1
-                    dayDoneSet.add(day)
-
-                    # keyHours processing code
-                    # changes done because some stores opens two times a day.
-                    opens_firstHalf = openingHours[dayIndex]["time_open1"]
-                    closes_firstHalf = openingHours[dayIndex]["time_close1"]
-                    opens_secondHalf = openingHours[dayIndex]["time_open2"]
-                    closes_secondHalf = openingHours[dayIndex]["time_close2"]
-                    if (
-                        opens_firstHalf
-                        == closes_firstHalf
-                        == opens_secondHalf
-                        == closes_secondHalf
-                    ):
-                        closedDayHours = {
-                            "day": dayKeys[day],
-                            "open": False,
-                        }
-                        heapq.heappush(daysHeap, [day, closedDayHours])
-                    else:
-                        if opens_secondHalf == closes_secondHalf:
-                            actualHours = {
-                                "open": opens_firstHalf,
-                                "close": closes_firstHalf,
-                            }
-                            keyHours = {
-                                "day": dayKeys[day],
-                                "open": True,
-                                "hours": [actualHours],
-                            }
-                            heapq.heappush(daysHeap, [day, keyHours])
-                        else:
-                            actualHours_firstHalf = {
-                                "open": opens_firstHalf,
-                                "close": closes_firstHalf,
-                            }
-                            actualHours_secondHalf = {
-                                "open": opens_secondHalf,
-                                "close": closes_secondHalf,
-                            }
-                            keyHours = {
-                                "day": dayKeys[day],
-                                "open": True,
-                                "hours": [
-                                    actualHours_firstHalf,
-                                    actualHours_secondHalf,
-                                ],
-                            }
-                            heapq.heappush(daysHeap, [day, keyHours])
-
-                except:
-                    closedDayHours = {
-                        "day": dayKeys[day],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [day, closedDayHours])
-
-        # Check for any missing days and ensure all days are in order for insertion into our database
-        for day in daysHeap:
-            if day[1]["day"] != dayKeys[day[0]]:
-                day[0] = intermediaryDayKeys[day[1]["day"]]
-
-        if len(daysHeap) < 7:
-            for dayDone in dayKeys.keys():
-                if dayDone not in dayDoneSet:
-                    closedDayHours = {
-                        "day": dayKeys[dayDone],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
-
-        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
-        latitude = res["stores"][index]["location"]["geo"]["lat"]
-        longitude = res["stores"][index]["location"]["geo"]["lon"]
-        migrosArray.append([(float(latitude), float(longitude)), hoursArray])
-    migrosDB = pd.DataFrame(migrosArray, columns=["Coordinates", "OpeningHours"])
-    migrosDB.to_csv("Migros.csv")
-    return True
-
-def get_migros_data(lat, lng):
-    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
-    if isinstance(lat, list):
-        returnDistanceToo = True
-        lat = lat[0]
-        lng = lng[0]
-    else:
-        returnDistanceToo = False
-    desiredCoords = [lat, lng]
-    migrosDB = pd.read_csv(
-        "Migros.csv",
-        index_col="Unnamed: 0",
-        converters={"Coordinates": eval, "OpeningHours": eval},
-    )
-    migrosDB["Distances"] = haversine_vector(
-        [desiredCoords] * len(migrosDB["Coordinates"]), list(migrosDB["Coordinates"]),
-    )
-    closestStoreIndex = migrosDB["Distances"].idxmin()
-    if returnDistanceToo:
-        return (
-            migrosDB["Distances"][closestStoreIndex],
-            migrosDB["OpeningHours"][closestStoreIndex],
-        )
-    else:
-        return migrosDB["OpeningHours"][closestStoreIndex]
-
-
 def get_carrefour_data(lat, lng):
     API_URL = "https://magasins.carrefour.eu/api/v3/near/locations/by/slug"
     params = (
@@ -1498,7 +1682,9 @@ def get_carrefour_data(lat, lng):
         return False
     try:
         res = rq.json()
+        print(res)
         if len(res) == 0:
+            print("hi")
             return False
     except:
         return False
@@ -1515,7 +1701,7 @@ def get_carrefour_data(lat, lng):
         float(res[i]["address"]["longitude"]),
     )
     # compute distance between the two points using the haversine function
-    storeDistance = haversine((lat, lng), (storeLat, storeLng), unit="m")
+    storeDistance = haversine((lat, lng), (storeLat, storeLng), unit="km")
     if storeDistance > radius:
         return False
     openingHours = res[i]["businessHours"]
@@ -1597,154 +1783,6 @@ def get_carrefour_data(lat, lng):
         carrefourArray.append([(float(latitude), float(longitude)), hoursArray])
     return carrefourArray
 
-def set_up_mercadona_database():
-    API_URL = "https://www.mercadona.com/estaticos/cargas/data.js"
-    mercadonaArray = []
-    dayKeys = {
-        0: "Monday",
-        1: "Tuesday",
-        2: "Wednesday",
-        3: "Thursday",
-        4: "Friday",
-        5: "Saturday",
-        6: "Sunday",
-    }
-    intermediaryDayKeys = {
-        "Monday": 0,
-        "Tuesday": 1,
-        "Wednesday": 2,
-        "Thursday": 3,
-        "Friday": 4,
-        "Saturday": 5,
-        "Sunday": 6,
-        None: None,
-    }
-    try:
-        rq = requests.get(API_URL)
-        obj = rq.text[rq.text.find("{") : -5] + "]}"
-        res = json.loads(obj)
-
-        if len(res) == 0:
-            return False
-    except:
-        return False
-
-    for index in range(len(res["tiendasFull"])):
-        dayDoneSet = set()
-        daysHeap = []
-        daysArray = []
-        closingDayArray = res["tiendasFull"][index]["fi"].split("#")
-        openingDayArray = res["tiendasFull"][index]["in"].split("#")
-
-        # finding current day in Spain(madrid)
-        timeZoneEurope = pytz.timezone("Europe/Madrid")
-        datetimeEurope = datetime.now(timeZoneEurope)
-        currentday = datetimeEurope.strftime("%A")
-        dayCounter = intermediaryDayKeys[currentday]
-
-        # implemented because time string returned accordni to the current day in Spain(eg : "##C#C###")
-        for val in range(7):
-            daysArray.append(dayCounter)
-            dayCounter += 1
-            if dayCounter == 7:
-                dayCounter = 0
-
-        openingHours = daysArray
-
-        for dayIndex in range(len(openingHours)):
-            day = daysArray[dayIndex]
-
-            # if statement to deal with days being included twice (implemnted due to a bug in rewe system)
-            if day not in dayDoneSet:
-                try:
-                    dayDoneSet.add(day)
-                    # keyHours processing code
-                    opens = openingDayArray[dayIndex]
-                    closes = closingDayArray[dayIndex]
-                    if opens == closes != "":
-                        closedDayHours = {
-                            "day": dayKeys[daysArray[dayIndex]],
-                            "open": False,
-                        }
-                        heapq.heappush(daysHeap, [dayIndex, closedDayHours])
-                    else:
-                        if opens == closes == "":
-                            opens = "09:00"
-                            closes = "21:30"
-                        elif opens == "" and closes != "":
-                            opens = "09:00"
-                            closes = datetime.strptime(closes, "%H%M").strftime("%H:%M")
-                        elif opens != "" and closes == "":
-                            closes = "21:30"
-                            opens = datetime.strptime(opens, "%H%M").strftime("%H:%M")
-                        else:
-                            opens = datetime.strptime(opens, "%H%M").strftime("%H:%M")
-                            closes = datetime.strptime(closes, "%H%M").strftime("%H:%M")
-                        actualHours = {"open": opens, "close": closes}
-                        keyHours = {
-                            "day": dayKeys[daysArray[dayIndex]],
-                            "open": True,
-                            "hours": [actualHours],
-                        }
-                        heapq.heappush(daysHeap, [dayIndex, keyHours])
-
-                except:
-                    closedDayHours = {
-                        "day": dayKeys[daysArray[dayIndex]],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [dayIndex, closedDayHours])
-
-        # Check for any missing days and ensure all days are in order for insertion into our database
-        for day in daysHeap:
-            if day[1]["day"] != dayKeys[day[0]]:
-                day[0] = intermediaryDayKeys[day[1]["day"]]
-
-        if len(daysHeap) < 7:
-            for dayDone in dayKeys.keys():
-                if dayDone not in dayDoneSet:
-                    closedDayHours = {
-                        "day": dayKeys[daysArray[dayIndex]],
-                        "open": False,
-                    }
-                    heapq.heappush(daysHeap, [dayDone, closedDayHours])
-
-        hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
-        latitude = res["tiendasFull"][index]["lt"]
-        longitude = res["tiendasFull"][index]["lg"]
-        mercadonaArray.append([(float(latitude), float(longitude)), hoursArray])
-    mercadonaDB = pd.DataFrame(mercadonaArray, columns=["Coordinates", "OpeningHours"])
-    mercadonaDB.to_csv("Mercadona.csv")
-    return True
-
-
-def get_mercadona_data(lat, lng):
-    # pass lat and lng as arrays of length 1 if you want the storeDistance to be returned too
-    if isinstance(lat, list):
-        returnDistanceToo = True
-        lat = lat[0]
-        lng = lng[0]
-    else:
-        returnDistanceToo = False
-    desiredCoords = [lat, lng]
-    mercadonaDB = pd.read_csv(
-        "Mercadona.csv",
-        index_col="Unnamed: 0",
-        converters={"Coordinates": eval, "OpeningHours": eval},
-    )
-    mercadonaDB["Distances"] = haversine_vector(
-        [desiredCoords] * len(mercadonaDB["Coordinates"]),
-        list(mercadonaDB["Coordinates"]),
-    )
-    closestStoreIndex = mercadonaDB["Distances"].idxmin()
-    if returnDistanceToo:
-        return (
-            mercadonaDB["Distances"][closestStoreIndex],
-            mercadonaDB["OpeningHours"][closestStoreIndex],
-        )
-    else:
-        return mercadonaDB["OpeningHours"][closestStoreIndex]
-
 def get_coles_data(lat, lng):
     API_URL = "https://apigw.coles.com.au/digital/colesweb/v1/stores/search"
     params = (
@@ -1759,7 +1797,7 @@ def get_coles_data(lat, lng):
         return False
     try:
         res = rq.json()
-        if len(res) == 0:
+        if len(res["stores"]) == 0:
             return False
     except:
         return False
@@ -1776,11 +1814,10 @@ def get_coles_data(lat, lng):
         float(res["stores"][0]["longitude"]),
     )
     # compute distance between the two points using the haversine function
-    storeDistance = haversine((lat, lng), (storeLat, storeLng), unit="m")
+    storeDistance = haversine((lat, lng), (storeLat, storeLng), unit="km")
     if storeDistance > radius:
         return False
     openingHours = res["stores"][i]["tradingHours"]
-    colesArray = []
     dayKeys = {
         0: "Monday",
         1: "Tuesday",
@@ -1888,8 +1925,7 @@ def get_coles_data(lat, lng):
         hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
         latitude = res["stores"][index]["latitude"]
         longitude = res["stores"][index]["longitude"]
-        colesArray.append([(float(latitude), float(longitude)), hoursArray])
-    return colesArray
+    return hoursArray
 
 #Print statements to test setting up of local database opening hours functions.
 
@@ -1902,11 +1938,15 @@ def get_coles_data(lat, lng):
 
 #Print statements to test opening hours retrieval functions.
 
-print(get_rewe_data(lat,lng))
-print(get_netto_data(lat, lng))
-print(get_netto_marken_discount_data(lat, lng))
-print(get_netto_brands_data(lat, lng))
-print(get_edeka_data(lat,lng))
+#Subsection of print statements for those that use internal DBs:
+# print(get_rewe_data(lat,lng))
+# print(get_netto_data(lat, lng))
+# print(get_netto_brands_data(lat, lng))
+# print(get_kaufland_data(lat,lng))
+# print(get_migros_data(lat, lng))
+# print(get_mercadona_data(lat, lng))
+
+# print(get_netto_marken_discount_data(lat, lng))
 # print(get_sainsburys_data(lat,lng))
 # print(get_asda_data(lat,lng))
 # print(get_tesco_data(lat,lng))
@@ -1916,11 +1956,11 @@ print(get_edeka_data(lat,lng))
 # print(get_coop_data(lat,lng))
 # print(get_marks_and_spencers_data(lat,lng))
 # print(get_iceland_data(lat,lng))
-# print(get_kaufland_data(lat,lng))
-# print(get_migros_data(lat, lng))
+# print(get_edeka_data(lat,lng))
 # print(get_carrefour_data(lat, lng))
-# print(get_mercadona_data(lat, lng))
 # print(get_coles_data(lat, lng))
+
+
 
 # # Copyable Heap structure code:
 
