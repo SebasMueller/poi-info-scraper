@@ -90,23 +90,12 @@ def set_up_rewe_database():
                         }
                         heapq.heappush(daysHeap, [day,keyHours])
             # simple heap method to check for any missing days (method which could be deployed to all other API functions quite easily)
-            checkedUpToDay = -1
-            for day in heapq.nsmallest(7, daysHeap):
-                checkedUpToDay += 1
-                while day[0] > checkedUpToDay:
-                    closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                            'open' : False  }
-                    heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-                    checkedUpToDay += 1
-            while len(daysHeap) < 7:
-                if len(daysHeap) > 0:
-                    checkedUpToDay = daysHeap[-1][0] + 1
-                else:
-                    # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-                    checkedUpToDay = 0
-                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                            'open' : False  }
-                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+            for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+                closedDayHours = {
+                    "day": dayKeys[missingDay],
+                    "open": False
+                }
+                heapq.heappush(daysHeap, [missingDay, closedDayHours])
             if len(daysHeap) != 7:
                 return False
             hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -158,23 +147,12 @@ def set_up_netto_database():
                         'open' : False  }
                     heapq.heappush(daysHeap, [day, closedDayHours])
         #Check for any missing days and ensure all days are in order for insertion into our database
-        checkedUpToDay = -1
-        for day in heapq.nsmallest(7, daysHeap):
-            checkedUpToDay += 1
-            while day[0] > checkedUpToDay:
-                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                        'open' : False  }
-                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-                checkedUpToDay += 1
-        while len(daysHeap) < 7:
-            if len(daysHeap) > 0:
-                checkedUpToDay = daysHeap[-1][0] + 1
-            else:
-                # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-                checkedUpToDay = 0
-                closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                            'open' : False  }
-                heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+        for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+            closedDayHours = {
+                "day": dayKeys[missingDay],
+                "open": False
+            }
+            heapq.heappush(daysHeap, [missingDay, closedDayHours])
         if len(daysHeap) != 7:
             return False
         hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -775,23 +753,12 @@ def get_netto_marken_discount_data(lat, lng):
                                     'open' : False  }
                         heapq.heappush(daysHeap, [day, closedDayHours])
     # simple heap method to check for any missing days (method which could be deployed to all other API functions quite easily)
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                        'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -866,23 +833,12 @@ def get_sainsburys_data(lat,lng):
                     }
             heapq.heappush(daysHeap, [key,keyHours])
     #Check for any missing days and ensure all days are in order for insertion into our database
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -966,23 +922,12 @@ def get_asda_data(lat,lng):
                     heapq.heappush(daysHeap, [day,keyHours])
 
     #Check for any missing days and ensure all days are in order for insertion into our database     
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -1359,23 +1304,12 @@ def get_aldi_data(lat, lng):
                         }
                 heapq.heappush(daysHeap, [key, keyHours])
     #Check for any missing days and ensure all days are in order for insertion into our database
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -1445,23 +1379,12 @@ def get_coop_data(lat, lng):
                                     'open' : False  }
                     heapq.heappush(daysHeap, [key, closedDayHours])
     # Check for any missing days and ensure all days are in order for insertion into our database
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -1521,23 +1444,12 @@ def get_marks_and_spencers_data(lat, lng):
                                     'open' : False  }
                     heapq.heappush(daysHeap, [key,closedDayHours])
     # Check for any missing days and ensure all days are in order for insertion into our database
-    checkedUpToDay = -1
-    for day in heapq.nsmallest(7, daysHeap):
-        checkedUpToDay += 1
-        while day[0] > checkedUpToDay:
-            closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-            heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-            checkedUpToDay += 1
-    while len(daysHeap) < 7:
-        if len(daysHeap) > 0:
-            checkedUpToDay = daysHeap[-1][0] + 1
-        else:
-            # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-            checkedUpToDay = 0
-        closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-                    'open' : False  }
-        heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+        closedDayHours = {
+            "day": dayKeys[missingDay],
+            "open": False
+        }
+        heapq.heappush(daysHeap, [missingDay, closedDayHours])
     if len(daysHeap) != 7:
         return False
     hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
@@ -1983,16 +1895,12 @@ def get_coles_data(lat, lng):
 #         closedDayHours = {  'day' : dayKeys[checkedUpToDay],
 #                 'open' : False  }
 #         heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
-#         checkedUpToDay += 1
-# while len(daysHeap) < 7:
-#     if len(daysHeap) > 0:
-#         checkedUpToDay = daysHeap[-1][0] + 1
-#     else:
-#         # THIS CHECK MEANS STORE IS OPEN 0 DAYS A WEEK, if we want to remove such stores, insert appropriate code here
-#         checkedUpToDay = 0
-#     closedDayHours = {  'day' : dayKeys[checkedUpToDay],
-#                 'open' : False  }
-#     heapq.heappush(daysHeap, [checkedUpToDay, closedDayHours])
+#    for missingDay in set(dayKeys.keys()).difference(dayDoneSet):
+#        closedDayHours = {
+#            "day": dayKeys[missingDay],
+#            "open": False
+#        }
+#        heapq.heappush(daysHeap, [missingDay, closedDayHours])
 # if len(daysHeap) != 7:
 #     return False
 # hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
