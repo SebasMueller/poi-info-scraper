@@ -9,6 +9,11 @@ import pandas as pd
 from dateutil import parser
 import pytz
 from datetime import datetime
+
+#DISABLE WARNINGS FOR CARREFOUR API (may be unsafe)
+import urllib3
+import warnings
+
 limit = 1
 radius = 6 #in km
 # lat = 52.635875 #uk - norfolk
@@ -533,17 +538,30 @@ def get_netto_data(lat, lng):
     nettoDB = pd.read_csv("Netto.csv", index_col="Unnamed: 0", converters={'Coordinates': eval, 'OpeningHours' : eval})
     nettoDB["Distances"] = haversine_vector([desiredCoords]*len(nettoDB["Coordinates"]), list(nettoDB["Coordinates"]))
     closestStoreIndex = nettoDB["Distances"].idxmin()
-    if nettoDB["Distances"][closestStoreIndex] > radius:
+    try:
+        if nettoDB["Distances"][closestStoreIndex] > radius:
+            return False
+        if returnDistanceToo:
+            return nettoDB["Distances"][closestStoreIndex], nettoDB["OpeningHours"][closestStoreIndex]
+        else:
+            return nettoDB["OpeningHours"][closestStoreIndex]
+    except:
+        print("NETTO MYSTERIOUS ERROR")
+        print(nettoDB)
+        print(nettoDB["OpeningHours"])
+        print(closestStoreIndex)
         return False
-    if returnDistanceToo:
-        return nettoDB["Distances"][closestStoreIndex], nettoDB["OpeningHours"][closestStoreIndex]
-    else:
-        return nettoDB["OpeningHours"][closestStoreIndex]
     
 def get_netto_brands_data(lat, lng):
     netto = get_netto_data([lat], [lng])
     nettoMD = get_netto_marken_discount_data([lat], [lng])
-    if netto[0] < nettoMD[0]:
+    if netto and not nettoMD:
+        return netto[1]
+    elif nettoMD and not netto:
+        return nettoMD[1]
+    elif not nettoMD and not netto:
+        return False
+    elif netto[0] < nettoMD[0]:
         if netto[1] > radius:
             return False
         return netto[1]
@@ -1588,15 +1606,16 @@ def get_carrefour_data(lat, lng):
         ("size", "{}".format(limit)),
         ("radius", "20000"),
     )
+    #disable and then re-eanable warnings
+    urllib3.disable_warnings()
     rq = requests.get(API_URL, params=params, verify=False)
+    warnings.resetwarnings()
     if rq.status_code != 200:
         print(rq.json())
         return False
     try:
         res = rq.json()
-        print(res)
         if len(res) == 0:
-            print("hi")
             return False
     except:
         return False
@@ -1690,10 +1709,7 @@ def get_carrefour_data(lat, lng):
                     heapq.heappush(daysHeap, [dayDone, closedDayHours])
 
         hoursArray = [i[1] for i in heapq.nsmallest(7, daysHeap)]
-        latitude = res[index]["address"]["latitude"]
-        longitude = res[index]["address"]["longitude"]
-        carrefourArray.append([(float(latitude), float(longitude)), hoursArray])
-    return carrefourArray
+    return hoursArray
 
 def get_coles_data(lat, lng):
     API_URL = "https://apigw.coles.com.au/digital/colesweb/v1/stores/search"
